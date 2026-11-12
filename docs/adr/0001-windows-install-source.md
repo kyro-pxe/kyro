@@ -1,16 +1,18 @@
 # ADR 0001: How Windows Setup gets its install source
 
-- **Status:** Accepted on 2026-11-12. Nothing here is implemented, and the
-  validation spike has not been run yet.
+- **Status:** Accepted on 2026-11-12 and confirmed by the validation spike of
+  the same day ([results](../spikes/0001-install-source.md)). Nothing here is
+  implemented.
 - **Date:** 2026-11-12
 - **Deciders:** Kyro maintainers
 
 > **Evidence level.** The comparison below is desk research: upstream
 > documentation, issue trackers and community write-ups, listed under
 > [References](#references). The maintainer accepted the decision on that
-> basis. The claims it depends on are collected in the
-> [validation spike](#validation-spike). If the spike contradicts them, this
-> record is revised or superseded.
+> basis. The claims it depends on were then tested in the
+> [validation spike](#validation-spike). Where the spike corrected the
+> research, the text says so and
+> [Amendments after the spike](#amendments-after-the-spike) lists the changes.
 
 ## Context
 
@@ -137,6 +139,8 @@ an iBFT table; WinPE's iSCSI stack reconnects and shows a DVD drive.
   iSCSI handover failing depending on NIC driver and Windows build.
 - Licenses: none needed if stock `boot.wim` is sufficient, which is the open
   point. If optional components are required, the user needs the ADK.
+- Spike result: stock `boot.wim` is not sufficient. The iSCSI initiator
+  service does not exist in it.
 - Deployment: single binary. A read-only target is less code than an SMB
   server.
 - Legal: clean.
@@ -238,6 +242,9 @@ Everything below is a plan to be confirmed in Phase 2.
   Windows 11 24H2 introduced a new Setup front end, and several reports
   describe network installs that only work with the previous one. The spike
   must test both front ends.
+
+  Spike result: both work. See
+  [Amendments after the spike](#amendments-after-the-spike) for the default.
 - **SMB server scope:** SMB 2.1 to 3.1.1, NTLMv2 with a non-guest account,
   signing, read-only, no SMB1, no guest, bound to the boot interface only.
   The credentials are in a script served over plain HTTP, so they are not a
@@ -257,7 +264,8 @@ Everything below is a plan to be confirmed in Phase 2.
 - Kyro has to listen on TCP 445. That needs `CAP_NET_BIND_SERVICE` like the
   other privileged ports. It cannot share an IP address with Samba or with
   Windows file sharing. Windows 11 24H2 added `net use /TCPPORT:` for
-  alternative ports; whether WinPE's `net use` supports it is unverified.
+  alternative ports. The spike confirmed that it works in the Windows PE of
+  the tested ISO, so a port other than 445 can be offered as an option.
 - An SMB server is security-sensitive parsing code on a well-known port.
   Read-only, interface-bound, fuzz-tested, and possible to switch off.
 - Answer files and the share credentials travel unauthenticated. See
@@ -294,6 +302,45 @@ can be attributed to the server and not to the client.
 The decision holds if 1 to 3 pass. If 6 fails for all candidates and a
 minimal server of our own is not feasible, Kyro ships with B only and E is
 re-evaluated.
+
+### Outcome
+
+The spike ran on 2026-11-12 with the Windows 11 Enterprise evaluation ISO
+(Windows PE build 26100, installed build 26300). The full record is in
+[docs/spikes/0001-install-source.md](../spikes/0001-install-source.md).
+
+1. Pass.
+2. Pass. A guest share also works in this Windows PE.
+3. Pass. Which front end appears depends on which `setup.exe` is started.
+4. Pass, for both front ends and through to the installed system.
+5. Fail. The service does not exist in the stock image.
+6. Two of four candidate libraries can be reached from Windows PE at all.
+   Both complete an unattended install with Setup started from RAM. Only
+   `jfjallid/go-smb` also completes one with Setup run from the share.
+
+### Amendments after the spike
+
+- **Default start method: Setup from RAM.**
+  `X:\sources\setup.exe /installfrom:` asks the SMB server for 5 files with
+  14 CREATE requests. Setup run from the share opens 1,253 files and needs
+  leases and byte-range locks. The embedded server therefore starts Setup
+  from RAM by default. This shows the previous Setup front end. The start
+  script has to copy `ei.cfg` and `pid.txt` from the share into `X:\sources`,
+  because Setup started from RAM does not look for them on the media.
+  Running Setup from the share, which shows the new front end, stays
+  available as an option.
+- **iSCSI (E) is not a fallback** for an unmodified `boot.wim`. If the
+  embedded server cannot be made reliable, the fallback is B.
+- **Name lookups ignore case**, in the SMB server and in Kyro's reading of
+  the ISO. The media contain `EI.CFG`; Setup asks for `ei.cfg`.
+- **Stale sessions.** A client that resets leaves its SMB connection open on
+  the server, and its next boot then waits one to three minutes for the
+  share. The embedded server uses short TCP keepalives and drops a client's
+  old sessions when the client boots again. The start script retries.
+- **wimboot gets `boot.wim` only.** It extracts the boot manager, `BCD` and
+  `boot.sdi` itself.
+- **The start script is a batch file.** The stock image has no PowerShell
+  and no HTTP client.
 
 ## Windows 11 requirements and PXE booting
 

@@ -17,7 +17,7 @@ Kyro cannot boot anything yet.
 
 | Item | Status | Notes |
 | ---- | ------ | ----- |
-| Decide how Windows Setup gets its install source | in progress | [ADR 0001](adr/0001-windows-install-source.md) is accepted: SMB, embedded by default. It is based on research; the validation spike in Phase 2 still has to confirm it. |
+| Decide how Windows Setup gets its install source | tested | [ADR 0001](adr/0001-windows-install-source.md) is accepted: SMB, embedded by default. Confirmed by [spike 0001](spikes/0001-install-source.md) with one Windows 11 ISO in QEMU. |
 | Decide which SMB server implementation to embed | planned | Own ADR. MIT, BSD or Apache-2.0 only. |
 | Decide how profiles (answer files) are stored, validated and served | in progress | [ADR 0002](adr/0002-profiles.md) is proposed. The bundle specification shared with the website is still missing from it. |
 
@@ -42,11 +42,13 @@ Kyro cannot boot anything yet.
 
 | Item | Status | Notes |
 | ---- | ------ | ----- |
-| Validation spike for ADR 0001 against Samba | in progress | Uses the Microsoft evaluation ISO, downloaded locally. |
-| Validation spike for ADR 0001 against the embedded server | planned | Only after the Samba run passes. |
+| Validation spike for ADR 0001 against Samba | tested | [Results](spikes/0001-install-source.md). Reproducible with `scripts/spike-install-source`. One ISO, QEMU only. |
+| Validation spike for ADR 0001 against embedded server candidates | tested | Same document. Four libraries tried. This is a test of candidates, not an implementation. |
 | Scan an images directory for ISOs | planned | |
 | Serve boot files from the ISO through wimboot | planned | |
-| Install source: embedded read-only SMB server (`smb.mode: embedded`) | planned | Linux. Default. |
+| Install source: embedded read-only SMB server (`smb.mode: embedded`) | planned | Linux. Default. Starts Setup from RAM by default. |
+| Start script for Windows PE: share mapping with retries, `ei.cfg` and `pid.txt`, Setup start | planned | A batch file; findings in spike 0001. |
+| Optional SMB port other than 445 (`net use /TCPPORT:`) | planned | Verified for one Windows PE build only. |
 | Fuzz tests for the embedded SMB server | planned | |
 | Install source: external SMB server (`smb.mode: external`) | planned | Linux: generated Samba configuration. |
 | Install source on Windows hosts: built-in file sharing set up by Kyro | planned | Needs administrator rights. |
