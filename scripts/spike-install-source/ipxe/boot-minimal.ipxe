@@ -1,4 +1,0 @@
-#!ipxe
-# Placeholder. "spike.sh case <name>" writes the real script.
-echo No test case installed. Run: spike.sh case <name>
-shell

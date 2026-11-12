@@ -18,7 +18,7 @@
       <RunSynchronous>
         <RunSynchronousCommand wcm:action="add">
           <Order>1</Order>
-          <Path>cmd /c echo windowsPE pass ran at %TIME% &gt;\\192.168.77.1\log\unattend-windowspe.txt</Path>
+          <Path>cmd /c echo windowsPE pass ran at %TIME% &gt;\\192.168.77.2\log\vm@VM@\unattend-windowspe.txt</Path>
         </RunSynchronousCommand>
       </RunSynchronous>
       <DiskConfiguration>
@@ -79,6 +79,12 @@
     </component>
   </settings>
   <settings pass="oobeSystem">
+    <component name="Microsoft-Windows-International-Core" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <InputLocale>en-US</InputLocale>
+      <SystemLocale>en-US</SystemLocale>
+      <UILanguage>en-US</UILanguage>
+      <UserLocale>en-US</UserLocale>
+    </component>
     <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
       <OOBE>
         <HideEULAPage>true</HideEULAPage>
@@ -110,7 +116,7 @@
       <FirstLogonCommands>
         <SynchronousCommand wcm:action="add">
           <Order>1</Order>
-          <CommandLine>cmd /c net use \\192.168.77.1\log /user:kyro kyro-spike &amp; ver &gt;\\192.168.77.1\log\installed.txt</CommandLine>
+          <CommandLine>cmd /c net use \\192.168.77.2\log /user:kyro kyro-spike &amp; ver &gt;\\192.168.77.2\log\vm@VM@\installed.txt</CommandLine>
         </SynchronousCommand>
       </FirstLogonCommands>
     </component>
