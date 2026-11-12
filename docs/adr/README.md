@@ -10,3 +10,4 @@ Status values: **Proposed** (under discussion), **Accepted**, **Superseded**
 | No.  | Title                                                             | Status   |
 | ---- | ----------------------------------------------------------------- | -------- |
 | 0001 | [How Windows Setup gets its install source](0001-windows-install-source.md) | Accepted |
+| 0002 | [Profiles](0002-profiles.md)                                      | Proposed |

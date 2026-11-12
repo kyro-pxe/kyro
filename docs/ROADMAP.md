@@ -19,6 +19,7 @@ Kyro cannot boot anything yet.
 | ---- | ------ | ----- |
 | Decide how Windows Setup gets its install source | in progress | [ADR 0001](adr/0001-windows-install-source.md) is accepted: SMB, embedded by default. It is based on research; the validation spike in Phase 2 still has to confirm it. |
 | Decide which SMB server implementation to embed | planned | Own ADR. MIT, BSD or Apache-2.0 only. |
+| Decide how profiles (answer files) are stored, validated and served | in progress | [ADR 0002](adr/0002-profiles.md) is proposed. The bundle specification shared with the website is still missing from it. |
 
 ## Phase 1: Network boot basics
 
@@ -50,7 +51,10 @@ Kyro cannot boot anything yet.
 | Install source: external SMB server (`smb.mode: external`) | planned | Linux: generated Samba configuration. |
 | Install source on Windows hosts: built-in file sharing set up by Kyro | planned | Needs administrator rights. |
 | iPXE menu generated from available images | planned | |
-| Per-image `autounattend.xml` | planned | |
+| Profile store, import and validation (`kyro profile import/list/show/remove`) | planned | Per ADR 0002. |
+| Token substitution in answer files (`{{mac}}`, `{{serial}}`, `{{uuid}}`) | planned | Per ADR 0002. |
+| Answer file injection at boot, image and profile menu | planned | Depends on the ADR 0001 spike. |
+| Automatic profile selection by MAC, UUID or serial | planned | Selection, not authentication. |
 | Per-image LabConfig bypass | planned | Opt-in, off by default, documented as unsupported by Microsoft. |
 | Per-image NIC driver injection | planned | |
 
