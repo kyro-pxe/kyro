@@ -1,0 +1,35 @@
+name: Feature request
+description: Suggest an idea or improvement.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Kyro is in early development and most functionality is still planned.
+        Please check the README and docs/architecture.md first to see whether
+        your idea is already part of the plan.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the use case, not only the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+    validations:
+      required: false

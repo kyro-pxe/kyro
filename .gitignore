@@ -1,0 +1,40 @@
+# Build output
+/bin/
+/dist/
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.*
+go.work
+go.work.sum
+
+# IDE and OS files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Local configuration
+.env
+.env.*
+*.local.yaml
+*.local.yml
+*.local.toml
+/kyro.yaml
+/kyro.yml
+/kyro.toml
+
+# Boot images (never commit these). The pattern is anchored to the repository
+# root so that it does not match internal/images/.
+*.iso
+*.wim
+/images/

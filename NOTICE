@@ -1,0 +1,31 @@
+Kyro
+Copyright (C) 2026 Lukas Koch and Kyro contributors
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version. See the LICENSE file for the full license text.
+
+Third-party software
+--------------------
+
+Kyro is intended to be used together with the following third-party programs.
+They are intended to be used as separate, unmodified binaries. They are not
+part of this repository's code, and no source code or binaries of these
+projects are included in this repository.
+
+  * iPXE     https://ipxe.org/
+             Licensed under the GNU General Public License, version 2.
+
+  * wimboot  https://github.com/ipxe/wimboot
+             Licensed under the GNU General Public License, version 2.
+
+Each of these projects remains under its own license and copyright. See the
+respective upstream project for details.
+
+Trademarks
+----------
+
+Windows is a trademark of the Microsoft group of companies. Kyro is not
+affiliated with or endorsed by Microsoft, and does not include or distribute
+any Microsoft software.
