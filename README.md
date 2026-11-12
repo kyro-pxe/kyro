@@ -59,7 +59,9 @@ iPXE and wimboot are separate third-party projects. Kyro is intended to use
 them as unmodified binaries; they are not part of this repository (see
 [NOTICE](NOTICE)).
 
-See [docs/architecture.md](docs/architecture.md) for the full design plan.
+See [docs/architecture.md](docs/architecture.md) for the full design plan,
+[docs/ROADMAP.md](docs/ROADMAP.md) for the status of each planned item, and
+[docs/adr](docs/adr/README.md) for design decisions.
 
 ## Building
 

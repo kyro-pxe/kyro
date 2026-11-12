@@ -32,7 +32,8 @@ DHCP / proxyDHCP  ->  TFTP / HTTP  ->  iPXE  ->  wimboot  ->  Windows PE / Setup
    HTTP.
 5. **Windows PE / Setup.** wimboot starts Windows PE from `boot.wim`. Windows
    PE then needs access to the remaining installation files from the ISO to run
-   Windows Setup. How these are delivered is an open question (see below).
+   Windows Setup. [ADR 0001](adr/0001-windows-install-source.md) proposes a
+   read-only SMB share served by Kyro; the proposal is not yet accepted.
 
 ## Planned components
 
@@ -66,11 +67,15 @@ separate, unmodified binaries. They are not part of this repository; see
 [NOTICE](../NOTICE). How Kyro obtains these binaries (download, packaging,
 user-supplied) is not decided yet.
 
+Design decisions are recorded in [docs/adr](adr/README.md). The status of
+each planned item is tracked in [ROADMAP.md](ROADMAP.md).
+
 ## Open questions
 
 - How Windows PE gets the installation files (`install.wim` or `install.esd`)
-  from the ISO: for example over SMB, over HTTP, or another mechanism.
-- UEFI Secure Boot support.
+  from the ISO. [ADR 0001](adr/0001-windows-install-source.md) compares the
+  options and proposes SMB; it awaits approval and a validation spike.
+- UEFI Secure Boot support. ADR 0001 describes the constraints.
 - Which client platforms to support first (UEFI x86-64 is the obvious starting
   point; legacy BIOS and ARM64 are undecided).
 - Configuration format and where state is stored.
