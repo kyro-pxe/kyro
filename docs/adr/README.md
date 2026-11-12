@@ -1,0 +1,12 @@
+# Architecture decision records
+
+Each significant design decision gets a numbered record in this directory.
+A record states the context, the options that were considered, the decision
+and its consequences.
+
+Status values: **Proposed** (under discussion), **Accepted**, **Superseded**
+(replaced by a later record, which it links to).
+
+| No.  | Title                                                             | Status   |
+| ---- | ----------------------------------------------------------------- | -------- |
+| 0001 | [How Windows Setup gets its install source](0001-windows-install-source.md) | Proposed |
