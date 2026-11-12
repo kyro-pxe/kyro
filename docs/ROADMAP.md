@@ -17,7 +17,8 @@ Kyro cannot boot anything yet.
 
 | Item | Status | Notes |
 | ---- | ------ | ----- |
-| Decide how Windows Setup gets its install source | in progress | [ADR 0001](adr/0001-windows-install-source.md) is proposed and awaits approval. Based on research only, not on tests. |
+| Decide how Windows Setup gets its install source | in progress | [ADR 0001](adr/0001-windows-install-source.md) is accepted: SMB, embedded by default. It is based on research; the validation spike in Phase 2 still has to confirm it. |
+| Decide which SMB server implementation to embed | planned | Own ADR. MIT, BSD or Apache-2.0 only. |
 
 ## Phase 1: Network boot basics
 
@@ -33,18 +34,24 @@ Kyro cannot boot anything yet.
 | Obtaining iPXE and wimboot binaries | planned | Fetched or user-supplied, never committed. |
 | YAML config file and flags | planned | |
 | Privileged ports: `setcap` and Docker host networking documented | planned | |
+| Docker image | planned | May ship Samba as a distribution package. |
 | QEMU and OVMF test setup in `scripts/` | planned | |
 
 ## Phase 2: Images
 
 | Item | Status | Notes |
 | ---- | ------ | ----- |
-| Validation spike for ADR 0001 | planned | Needs a Windows 11 ISO. |
+| Validation spike for ADR 0001 against Samba | in progress | Uses the Microsoft evaluation ISO, downloaded locally. |
+| Validation spike for ADR 0001 against the embedded server | planned | Only after the Samba run passes. |
 | Scan an images directory for ISOs | planned | |
 | Serve boot files from the ISO through wimboot | planned | |
-| Install source for Windows Setup | planned | Mechanism per ADR 0001. |
+| Install source: embedded read-only SMB server (`smb.mode: embedded`) | planned | Linux. Default. |
+| Fuzz tests for the embedded SMB server | planned | |
+| Install source: external SMB server (`smb.mode: external`) | planned | Linux: generated Samba configuration. |
+| Install source on Windows hosts: built-in file sharing set up by Kyro | planned | Needs administrator rights. |
 | iPXE menu generated from available images | planned | |
 | Per-image `autounattend.xml` | planned | |
+| Per-image LabConfig bypass | planned | Opt-in, off by default, documented as unsupported by Microsoft. |
 | Per-image NIC driver injection | planned | |
 
 ## Phase 3: Management

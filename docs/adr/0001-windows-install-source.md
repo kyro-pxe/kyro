@@ -1,15 +1,16 @@
 # ADR 0001: How Windows Setup gets its install source
 
-- **Status:** Proposed. Awaiting maintainer approval; nothing here is implemented.
+- **Status:** Accepted on 2026-11-12. Nothing here is implemented, and the
+  validation spike has not been run yet.
 - **Date:** 2026-11-12
 - **Deciders:** Kyro maintainers
 
-> **Evidence level.** This ADR is desk research: upstream documentation, issue
-> trackers and community write-ups, listed under [References](#references).
-> Kyro has not booted Windows yet, so no statement below has been verified by
-> the project. Claims that the recommendation depends on are collected in the
-> [validation spike](#validation-spike) and must be confirmed there before the
-> status changes to Accepted.
+> **Evidence level.** The comparison below is desk research: upstream
+> documentation, issue trackers and community write-ups, listed under
+> [References](#references). The maintainer accepted the decision on that
+> basis. The claims it depends on are collected in the
+> [validation spike](#validation-spike). If the spike contradicts them, this
+> record is revised or superseded.
 
 ## Context
 
@@ -175,12 +176,12 @@ HTTP, then runs `bcdboot`.
 | F. Modify `boot.wim` | Not needed for A or B | Risk of ADK dependency | Yes | Yes |
 | G. Replace Setup | Out of scope | Yes | Yes | Yes |
 
-## Recommendation
+## Decision
 
-**Adopt A, an embedded read-only SMB server, as the default, and support B,
-an external SMB server, as a configuration choice.** Never modify `boot.wim`
-(F). Reject D. Keep E as a documented fallback candidate if the spike shows
-that an embedded SMB server cannot be made reliable against Windows clients.
+**A, an embedded read-only SMB server, is the default. B, an external SMB
+server, is a configuration choice.** `boot.wim` is never modified (F). D is
+rejected. E stays a documented fallback candidate if the spike shows that an
+embedded SMB server cannot be made reliable against Windows clients.
 
 SMB is the only file access that stock WinPE offers without a kernel driver,
 without the ADK and without touching the disk early. A and B share the entire
@@ -192,8 +193,25 @@ smb:
 ```
 
 `external` means Kyro still generates the start script but points it at a
-share the user runs. That covers hosts where port 445 is taken and gives an
-escape hatch while the embedded server is young.
+share that something else serves. That covers hosts where port 445 is taken
+and gives an escape hatch while the embedded server is young. `off` disables
+the install source; clients then only reach WinPE.
+
+### Platforms
+
+Linux is the primary target.
+
+- **Linux:** the embedded server by default. Optionally an external Samba,
+  for which Kyro generates the configuration.
+- **Windows:** the file sharing that is built into Windows, set up by Kyro,
+  which needs administrator rights. The Windows server service owns port
+  445, so an embedded server cannot bind there.
+- **Docker:** the official image may ship Samba as a distribution package,
+  updated through the distribution.
+
+Samba is never bundled into the Kyro binary. It is C code, runs on Windows
+only through Cygwin or WSL, and bundling it would make Kyro responsible for
+its security updates.
 
 ### Planned design
 
@@ -230,17 +248,20 @@ Everything below is a plan to be confirmed in Phase 2.
   ISO tree read-only.
 - **Implementation:** evaluate the MIT-licensed `jfjallid/go-smb` server
   package and `sonroyaalmerol/go-smb-server` against a minimal implementation
-  of our own. Neither documents testing against Windows clients. AGPL
-  libraries are excluded. The choice gets its own ADR after the spike.
+  of our own. Neither documents testing against Windows clients. Only MIT,
+  BSD and Apache-2.0 licensed libraries qualify. The choice gets its own ADR.
+  Whatever is chosen, the embedded server gets fuzz tests.
 
 ### Consequences
 
 - Kyro has to listen on TCP 445. That needs `CAP_NET_BIND_SERVICE` like the
-  other privileged ports and fails if Samba already owns the address.
-  Windows 11 24H2 added `net use /TCPPORT:` for alternative ports; whether
-  WinPE's `net use` supports it is unverified.
+  other privileged ports. It cannot share an IP address with Samba or with
+  Windows file sharing. Windows 11 24H2 added `net use /TCPPORT:` for
+  alternative ports; whether WinPE's `net use` supports it is unverified.
 - An SMB server is security-sensitive parsing code on a well-known port.
   Read-only, interface-bound, fuzz-tested, and possible to switch off.
+- Answer files and the share credentials travel unauthenticated. See
+  [docs/security-model.md](../security-model.md).
 - WinPE needs a working NIC driver. Stock `boot.wim` lacks drivers for some
   current NICs. This affects every network option equally. Mitigation is a
   per-image driver directory injected by wimboot and loaded with `drvload`.
@@ -249,22 +270,28 @@ Everything below is a plan to be confirmed in Phase 2.
 
 ## Validation spike
 
-To be done at the start of Phase 2, in QEMU with OVMF, before building the
-image pipeline. It needs a Windows 11 ISO, which the maintainer has to
-supply or approve downloading for local testing.
+Done in QEMU with OVMF, before building the image pipeline. It uses the
+Microsoft evaluation ISO of Windows 11, downloaded locally and never
+committed.
 
-1. Stock Windows 11 25H2 `boot.wim` boots via wimboot with an injected
+The spike runs against Samba first, with signing enforced. The WinPE side
+(injected files, `net use`, both ways of starting Setup) is identical for A
+and B. Once it works against Samba, a failure against the embedded server
+can be attributed to the server and not to the client.
+
+1. A stock Windows 11 `boot.wim` boots via wimboot with an injected
    `winpeshl.ini` and script, and the script runs.
 2. From that WinPE, `net use` against a signing-required Samba share works
    with a named account. Record what happens with a guest share.
 3. Both ways of starting Setup reach the disk selection page and complete an
    install, with the new and the previous Setup front end.
-4. Repeat 2 and 3 against each embedded SMB server candidate.
-5. `/unattend:` with an injected answer file is honoured.
-6. Check whether `net start msiscsi` works in stock WinPE (decides whether E
+4. `/unattend:` with an injected answer file is honoured.
+5. Check whether `net start msiscsi` works in stock WinPE (decides whether E
    stays a fallback candidate).
+6. Only after 1 to 4 pass against Samba: repeat 2 and 3 against each
+   embedded SMB server candidate.
 
-The recommendation holds if 1 to 3 pass. If 4 fails for all candidates and a
+The decision holds if 1 to 3 pass. If 6 fails for all candidates and a
 minimal server of our own is not feasible, Kyro ships with B only and E is
 re-evaluated.
 
@@ -335,9 +362,9 @@ Kyro has a simpler second route: its start script runs before Setup, so it
 can execute the same `reg add` commands itself, without editing the user's
 answer file.
 
-How Kyro would offer this, if at all:
+Decided: Kyro offers the bypass as a built-in switch.
 
-- Off by default, opt-in per image, one switch per check.
+- Off by default, opt-in per image.
 - Kyro injects nothing unless asked. A user's own `autounattend.xml` that
   already contains the commands is passed through unchanged either way.
 - Documented with a clear warning: Microsoft does not support Windows 11 on
@@ -345,18 +372,6 @@ How Kyro would offer this, if at all:
   to updates. The mechanism can stop working with any release.
 - It does not touch activation or licensing. It is a registry setting in the
   user's own installer session, and no Microsoft file is modified.
-
-Whether Kyro ships a built-in switch for this is a maintainer decision and
-is listed below.
-
-## Open questions for the maintainer
-
-1. Approve A as default with B as a config option?
-2. Should Kyro offer the LabConfig bypass as a built-in opt-in switch, or
-   only pass through whatever the user's own `autounattend.xml` contains?
-3. Windows 11 ISO for the spike: supplied by the maintainer, or may the
-   Microsoft evaluation ISO be downloaded for local testing (never
-   committed)?
 
 ## References
 

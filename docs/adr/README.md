@@ -9,4 +9,4 @@ Status values: **Proposed** (under discussion), **Accepted**, **Superseded**
 
 | No.  | Title                                                             | Status   |
 | ---- | ----------------------------------------------------------------- | -------- |
-| 0001 | [How Windows Setup gets its install source](0001-windows-install-source.md) | Proposed |
+| 0001 | [How Windows Setup gets its install source](0001-windows-install-source.md) | Accepted |
