@@ -116,11 +116,21 @@ type readerAtFile interface {
 	io.ReaderAt
 }
 
+// plainPath matches paths made of letters, digits, dots, underscores and
+// hyphens. The paths Kyro takes from an ISO are written into a batch file,
+// and an ISO is a file that someone else made.
+var plainPath = regexp.MustCompile(`^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$`)
+
 // Inspect checks that fsys is the tree of a Windows installation medium and
 // fills in what Kyro needs to know about it.
-func Inspect(fsys fs.FS) (Image, error) {
-	var im Image
-	var err error
+func Inspect(fsys fs.FS) (im Image, err error) {
+	defer func() {
+		for _, p := range append([]string{im.BootWIM, im.InstallImage}, im.Extras...) {
+			if err == nil && !plainPath.MatchString(p) {
+				err = fmt.Errorf("the name %q in the image contains characters that Kyro does not accept there", p)
+			}
+		}
+	}()
 	if im.BootWIM, err = Lookup(fsys, "sources/boot.wim"); err != nil {
 		return im, errors.New("there is no sources/boot.wim; this is not a Windows installation medium")
 	}

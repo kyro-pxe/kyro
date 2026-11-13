@@ -224,6 +224,85 @@ func TestInspectVariants(t *testing.T) {
 	}
 }
 
+func TestInspectRefusesOddNames(t *testing.T) {
+	// A crafted ISO whose directory is called something that would be a
+	// command in a batch file.
+	for _, dir := range []string{"sources & calc", "SOURCES%PATH%", "sources^"} {
+		fsys := fstest.MapFS{
+			dir + "/boot.wim":    {Data: wim.Fake(nil, 0)},
+			dir + "/install.wim": {Data: wim.Fake(nil, 0)},
+		}
+		// Lookup ignores case, not other characters, so these are simply
+		// not found.
+		if _, err := images.Inspect(fsys); err == nil {
+			t.Errorf("%q: accepted", dir)
+		}
+	}
+	fsys := fstest.MapFS{
+		"sources/boot.wim":    {Data: wim.Fake(nil, 0)},
+		"sources/install.wim": {Data: wim.Fake(nil, 0)},
+	}
+	if _, err := images.Inspect(fsys); err != nil {
+		t.Errorf("plain names refused: %v", err)
+	}
+}
+
+func TestTree(t *testing.T) {
+	src := imagetest.Write(t)
+	s := images.Open(filepath.Join(t.TempDir(), "images"))
+	tree := s.Tree()
+	defer tree.Close()
+
+	if entries, err := fs.ReadDir(tree, "."); err != nil || len(entries) != 0 {
+		t.Fatalf("empty store: %v, %v", entries, err)
+	}
+	if _, err := s.Add(src, "win11", images.AddOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	// The image shows up without the tree being made again.
+	want := []string{"win11/setup.exe", "win11/sources/boot.wim", "win11/sources/install.wim", "win11/sources/EI.CFG", "win11/efi/boot/bootx64.efi"}
+	if err := fstest.TestFS(tree, want...); err != nil {
+		t.Error(err)
+	}
+	data, err := fs.ReadFile(tree, "win11/sources/boot.wim")
+	if err != nil || !bytes.Equal(data, imagetest.BootWIM) {
+		t.Errorf("boot.wim through the tree: %v", err)
+	}
+	info, err := fs.Stat(tree, "win11")
+	if err != nil || !info.IsDir() || info.Name() != "win11" {
+		t.Errorf("Stat(win11) = %v, %v", info, err)
+	}
+	o, err := tree.Image("win11")
+	if err != nil || o.Image.InstallImage != "sources/install.wim" {
+		t.Errorf("Image: %v", err)
+	}
+
+	// A second image next to it.
+	if _, err := s.Add(src, "other", images.AddOptions{Link: true}); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := fs.ReadDir(tree, ".")
+	if len(entries) != 2 || entries[0].Name() != "other" || entries[1].Name() != "win11" || !entries[0].IsDir() {
+		t.Errorf("top directory = %v", entries)
+	}
+
+	// A removed image disappears, also for those who knew its path.
+	if err := s.Remove("win11"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tree.Open("win11/sources/boot.wim"); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("file of a removed image: %v", err)
+	}
+	if _, err := tree.Image("win11"); !errors.Is(err, images.ErrNotFound) {
+		t.Errorf("Image of a removed image: %v", err)
+	}
+	for _, name := range []string{"missing", "missing/x", "../win11", "Other/setup.exe", "other/../other/setup.exe", ""} {
+		if _, err := tree.Open(name); err == nil {
+			t.Errorf("Open(%q) succeeded", name)
+		}
+	}
+}
+
 func TestLookup(t *testing.T) {
 	fsys := fstest.MapFS{
 		"sources/EI.CFG":  {Data: []byte("upper")},
