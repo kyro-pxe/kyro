@@ -186,7 +186,8 @@ func (s *Server) Serve(ctx context.Context) error {
 		}
 		data, ok := s.Lookup(req.name)
 		if !ok {
-			s.Log.Info("tftp: file not found", "client", client.Addr().String(), "file", req.name)
+			// iPXE asks for autoexec.ipxe on every boot. That is not news.
+			s.Log.Debug("tftp: file not found", "client", client.Addr().String(), "file", req.name)
 			conn.WriteToUDPAddrPort(errorPacket(errNotFound, "file not found"), client)
 			continue
 		}
@@ -200,13 +201,24 @@ func (s *Server) Serve(ctx context.Context) error {
 			defer func() { <-slots }()
 			start := time.Now()
 			if err := s.send(ctx, client, req, data); err != nil {
-				s.Log.Warn("tftp: transfer failed", "client", client.Addr().String(), "file", req.name, "err", err)
+				// UEFI firmware starts a transfer to learn the size of the
+				// file, ends it, and starts again. Only a client that
+				// stops answering is worth a warning.
+				level := slog.LevelWarn
+				if errors.Is(err, errClientGaveUp) {
+					level = slog.LevelDebug
+				}
+				s.Log.Log(ctx, level, "tftp: transfer not completed", "client", client.Addr().String(), "file", req.name, "err", err)
 				return
 			}
 			s.Log.Info("tftp: file sent", "client", client.Addr().String(), "file", req.name, "bytes", len(data), "ms", time.Since(start).Milliseconds())
 		}()
 	}
 }
+
+// errClientGaveUp means that the client ended a transfer with an error
+// packet.
+var errClientGaveUp = errors.New("the client ended the transfer")
 
 // send transfers one file to one client, from a port of its own.
 func (s *Server) send(ctx context.Context, client netip.AddrPort, req request, data []byte) error {
@@ -255,7 +267,7 @@ func (s *Server) send(ctx context.Context, client netip.AddrPort, req request, d
 						return nil
 					}
 				case opError:
-					return fmt.Errorf("the client gave up: %q", strings.TrimRight(string(reply[4:n]), "\x00"))
+					return fmt.Errorf("%w: %q", errClientGaveUp, strings.TrimRight(string(reply[4:n]), "\x00"))
 				}
 			}
 		}
