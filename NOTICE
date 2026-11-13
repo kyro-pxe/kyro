@@ -6,8 +6,51 @@ the terms of the GNU General Public License as published by the Free Software
 Foundation, either version 3 of the License, or (at your option) any later
 version. See the LICENSE file for the full license text.
 
-Third-party software
---------------------
+Third-party software compiled into Kyro
+---------------------------------------
+
+The Kyro binary contains the following Go modules. Their source code is not
+part of this repository; the Go toolchain downloads it at build time. The
+versions are recorded in go.mod.
+
+  * github.com/jfjallid/go-smb
+             Copyright (c) 2023 Jimmy Fjällid. MIT License.
+             According to its README it is based on
+             github.com/stacktitan/smb.
+
+  * github.com/jfjallid/golog
+             Copyright (c) 2022 Jimmy Fjällid. MIT License.
+
+  * github.com/jfjallid/gofork
+             A fork of parts of the Go standard library.
+             Copyright (c) 2009 The Go Authors. BSD 3-Clause License.
+
+  * github.com/jfjallid/gokrb5/v9
+             A fork of the gokrb5 Kerberos library.
+             Apache License, version 2.0.
+
+  * github.com/jfjallid/mstypes
+             A fork of github.com/jcmturner/rpc (mstypes).
+             Apache License, version 2.0.
+
+  * github.com/jfjallid/ndr
+             A fork of github.com/jcmturner/rpc (ndr).
+             Apache License, version 2.0.
+
+  * golang.org/x/crypto
+  * golang.org/x/net
+             Copyright 2009 The Go Authors. BSD 3-Clause License.
+
+  * software.sslmate.com/src/go-pkcs12
+             Copyright (c) 2015, 2018, 2019 Opsmate, Inc.
+             Copyright (c) 2009 The Go Authors. BSD 3-Clause License.
+
+The full license text of each module is in the LICENSE file of that module.
+All of these licenses are compatible with the GNU General Public License,
+version 3.
+
+Third-party software used alongside Kyro
+----------------------------------------
 
 Kyro is intended to be used together with the following third-party programs.
 They are intended to be used as separate, unmodified binaries. They are not
