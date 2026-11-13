@@ -18,7 +18,7 @@ Kyro cannot boot anything yet.
 | Item | Status | Notes |
 | ---- | ------ | ----- |
 | Decide how Windows Setup gets its install source | tested | [ADR 0001](adr/0001-windows-install-source.md) is accepted: SMB, embedded by default. Confirmed by [spike 0001](spikes/0001-install-source.md) with one Windows 11 ISO in QEMU. |
-| Decide which SMB server implementation to embed | planned | Own ADR. MIT, BSD or Apache-2.0 only. |
+| Decide which SMB server implementation to embed | tested | [ADR 0003](adr/0003-smb-server-library.md) is accepted: `jfjallid/go-smb` for the protocol, Kyro's own read-only file system behind it. Confirmed by installing Windows from it in the spike harness. |
 | Decide how profiles (answer files) are stored, validated and served | in progress | [ADR 0002](adr/0002-profiles.md) is proposed. The bundle specification shared with the website is still missing from it. |
 
 ## Phase 1: Network boot basics
