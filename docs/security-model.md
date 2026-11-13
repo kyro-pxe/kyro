@@ -69,8 +69,18 @@ Windows Setup reads the install image from a read-only SMB share (see
   Never expose port 445 to the internet or to networks outside the boot
   VLAN.
 - **New parsing code.** An embedded SMB server is security-sensitive code on
-  a well-known port. It is read-only, will be fuzz-tested, and can be
-  switched off in favour of an external server.
+  a well-known port. It can only read: the file system behind a share has no
+  operation that writes. It is fuzz-tested, and it can be switched off in
+  favour of an external server.
+- **Known weaknesses of the SMB library.** Fuzzing found requests that make
+  the library's parser fail, one of them before login. The library closes
+  the connection of the sender and carries on. More such requests probably
+  exist. [ADR 0003](adr/0003-smb-server-library.md) lists what was found and
+  what Kyro does about it.
+- **Denial of service.** A host on the boot network can occupy the server's
+  connections and file handles up to their limits, and then other clients
+  cannot install. Kyro does not prevent that; the boot network is the trust
+  boundary.
 
 ## Hardware requirement bypass
 

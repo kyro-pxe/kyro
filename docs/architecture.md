@@ -1,7 +1,8 @@
 # Architecture (design plan)
 
-> **This document is a design plan.** Nothing described here is implemented
-> yet. Details will change as the implementation progresses.
+> **This document is a design plan.** Almost nothing described here is
+> implemented yet, and Kyro cannot boot anything. [ROADMAP.md](ROADMAP.md)
+> says what exists. Details will change as the implementation progresses.
 
 ## Goal
 
@@ -33,8 +34,9 @@ DHCP / proxyDHCP  ->  TFTP / HTTP  ->  iPXE  ->  wimboot  ->  Windows PE / Setup
 5. **Windows PE / Setup.** wimboot starts Windows PE from `boot.wim`. Windows
    PE then needs access to the remaining installation files from the ISO to run
    Windows Setup. [ADR 0001](adr/0001-windows-install-source.md) decides on a
-   read-only SMB share, by default served by Kyro itself. It is not
-   implemented yet.
+   read-only SMB share, by default served by Kyro itself. The server for
+   that share exists (`internal/smbshare`) and can be run on its own with
+   `kyro share`. Nothing starts it as part of a boot yet.
 
 ## Planned components
 
@@ -45,10 +47,11 @@ DHCP / proxyDHCP  ->  TFTP / HTTP  ->  iPXE  ->  wimboot  ->  Windows PE / Setup
 | TFTP             | `internal/tftp`   | Read-only TFTP server for the iPXE bootloader         |
 | iPXE             | `internal/ipxe`   | Generating iPXE boot scripts and menus                |
 | Images           | `internal/images` | Discovering ISOs, reading their contents, per-image settings |
+| Install share    | `internal/smbshare` | Read-only SMB server that Windows Setup installs from |
 | Web UI           | `web`             | Managing images in the browser                        |
 | Deployment files | `deploy`          | Docker image and systemd unit                         |
 
-Today only `cmd/kyro` contains code, and it is a CLI skeleton. The `internal`
+Today `internal/smbshare` and `cmd/kyro` contain code. The other `internal`
 packages are empty placeholders.
 
 ## Images and unattended installation
@@ -75,8 +78,8 @@ will not protect against is described in
 
 ## Open questions
 
-- Which SMB server implementation the embedded server uses. This gets its own
-  decision record.
+- How Kyro reads files out of an ISO without unpacking it. The install share
+  serves a directory for now.
 - UEFI Secure Boot support. ADR 0001 describes the constraints.
 - Which client platforms to support first (UEFI x86-64 is the obvious starting
   point; legacy BIOS and ARM64 are undecided).
