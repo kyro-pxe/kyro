@@ -1,8 +1,10 @@
 # ADR 0002: Profiles
 
-- **Status:** Proposed, incomplete. The field-level bundle specification is
-  shared with `kyro-pxe/website` and has not been added to this record yet
-  (see [Bundle format](#bundle-format)). Nothing here is implemented.
+- **Status:** Accepted for the alpha on 2026-11-14, with a provisional
+  bundle format (version 0, see [Bundle format](#bundle-format)). The format
+  shared with `kyro-pxe/website` is still open and will get a higher version.
+  Automatic selection by rules is not part of the alpha; clients are armed
+  one at a time ([ADR 0004](0004-client-state.md)).
 - **Date:** 2026-11-12
 - **Deciders:** Kyro maintainers
 
@@ -53,13 +55,26 @@ answer file and its metadata. What this record relies on:
 - the Windows builds the profile supports;
 - a size limit of 2 MiB for the whole bundle.
 
-> **Open.** The normative field list is identical in both repositories and
-> has to be inserted here verbatim. Until it is, this record cannot be
-> accepted, and nothing that depends on field names is implemented. Kyro
-> does not define the format on its own, so the two sides cannot drift.
+**Version 0 (provisional).** The field list that the website and Kyro are
+meant to share was not available when the alpha was built. So that Kyro has
+a bundle format at all, the alpha defines this one and gives it version 0.
+The shared format will get version 1 or higher, and a Kyro that reads it
+will say so; the two cannot be confused.
 
-The JSON Schema of the bundle is published in this repository at
-`docs/schemas/kyro-profile.schema.json`.
+| Field | Type | Required | Meaning |
+| ----- | ---- | -------- | ------- |
+| `bundle_version` | number | yes | `0` |
+| `name` | string | no | Profile name. `--name` overrides it. |
+| `description` | string | no | Free text, at most 2,000 bytes |
+| `wipes_disk` | boolean | yes | Whether the answer file partitions, formats or wipes a disk without asking |
+| `warnings` | list of strings | no | At most 32, each at most 1,000 bytes |
+| `windows_builds` | list of strings | no | Build numbers such as `"26100"`. Stored and shown; the alpha does not match them against images. |
+| `answer_file` | string | yes | The content of `autounattend.xml` |
+
+Fields that are not in this table are an error.
+
+A JSON Schema is not published for version 0. It will be for the shared
+format.
 
 Kyro also accepts a **bare `.xml`** answer file. It is treated as a profile
 with no warnings and no build declaration. Its name comes from `--name` or,
@@ -124,9 +139,19 @@ serves the file:
 | `{{mac}}`    | MAC address of the booting interface    | 12 hex digits, upper case  |
 | `{{serial}}` | SMBIOS serial number                    | as reported, filtered      |
 | `{{uuid}}`   | SMBIOS system UUID                      | 8-4-4-4-12, lower case     |
+| `{{callback_url}}` | Where the installed system reports that it is done | an `http` URL |
 
-A suffix `:N` truncates the value to N characters, for example
-`PC-{{serial:12}}`. N is 1 to 64.
+A suffix `:N` keeps the **last** N characters of the value, for example
+`PC-{{serial:12}}`. N is 1 to 64. The first characters are the vendor part
+of a MAC address and the model part of most serial numbers, the same across
+a fleet; the last ones differ. `{{callback_url}}` takes no suffix.
+
+`{{callback_url}}` is the one token whose value comes from Kyro and not from
+the client. It is made of Kyro's address and the token of the installation
+([ADR 0004](0004-client-state.md)) and consists of letters, digits and
+`: / . _ -` only. An answer file uses it to tell Kyro that the installation
+is complete, for example in a first logon command:
+`curl.exe -X POST {{callback_url}}`.
 
 The values arrive as query parameters of the request that iPXE makes. They
 are untrusted. Each value passes two independent layers:
@@ -203,22 +228,44 @@ that an answer file decides. Decided by the maintainer on 2026-11-13.
 - Bundles are not signed. Importing one is an administrative action on the
   Kyro host.
 
+### Disks
+
+An answer file can wipe a disk without asking. Kyro refuses to arm a client
+for such a profile unless the administrator confirms it (`--confirm-wipe`).
+Which profiles need that:
+
+- a bundle that says `"wipes_disk": true`;
+- a bundle that says `false` but whose answer file has a
+  `<DiskConfiguration>` section or mentions `diskpart`, `Clear-Disk`,
+  `Initialize-Disk`, `Format-Volume` or `New-Partition`. Kyro then tells the
+  person importing it that the bundle contradicts itself;
+- every bare answer file, because it declares nothing.
+
+This is the one place where Kyro looks into an answer file. It is a search
+for a few words, not an understanding of the file, and it errs towards
+asking.
+
 ### Serving
 
-Kyro serves the rendered answer file to any client on the boot network that
-asks for it, over unauthenticated HTTP. From there wimboot places it in
-Windows PE's RAM disk.
+Kyro serves the rendered answer file over unauthenticated HTTP, under a path
+that contains the token of one installation, and only while that client is
+`installing`. From there wimboot places it in Windows PE's RAM disk.
 
-- A host on the boot network can request every profile, with any identifiers
-  it likes. Everything in every profile must be treated as readable by
-  everyone on that network. This is why
-  [the security model](../security-model.md) asks for an isolated boot VLAN
-  and recommends enrolling machines after installation instead of putting
-  passwords into answer files.
+- The token keeps a host on the boot network from fetching profiles by
+  name. It does not protect against someone who can read the traffic.
+  Everything in a profile must still be treated as readable on that
+  network. This is why [the security model](../security-model.md) asks for
+  an isolated boot VLAN and recommends enrolling machines after
+  installation instead of putting passwords into answer files.
+- The values of the tokens are taken from the boot request that started the
+  installation and stored with the client record. A later request cannot
+  change them.
 - Kyro logs which profile was served to which client, never the rendered
-  content. Client identifiers are sanitised before they are logged.
+  content.
 
 ### Automatic selection
+
+Not part of the alpha. What follows is the plan.
 
 Optionally, rules in the configuration select a profile from the client's
 MAC address, UUID or serial number. The first matching rule wins.
@@ -263,21 +310,14 @@ Rules are defined here and implemented together with the menu.
 - Substitution needs a parser that knows where text and CDATA are, not a
   plain search and replace. That is more code, and it gets fuzz tests.
 - Delivery to Windows Setup follows ADR 0001: wimboot injects the file and
-  the start script passes it with `/unattend:`. The validation spike for
-  ADR 0001 confirmed that this works. The injection and the menu still have
-  to wait, because Kyro has no boot server yet that could do either. Until
-  then only the store, the validation and the rendering can be built.
+  the start script passes it with `/unattend:`.
 
 ## Open questions
 
-1. **Which end does `:N` keep?** The first N characters are the obvious
-   reading of "truncate". For a MAC address those are the vendor prefix, so
-   `{{mac:6}}` would be identical across a fleet of the same model, and
-   computer names would collide. Serial numbers also tend to differ at the
-   end. Keeping the last N characters avoids this. The generator and Kyro
-   have to agree.
-2. **Canonical MAC form.** This record proposes 12 hex digits without
-   separators, because `[A-Za-z0-9-]` excludes colons and `PC-` plus 12
-   digits is exactly the 15 characters a computer name allows.
-3. **Countdown for automatic selection.** Whether a rule may boot without a
-   countdown at all.
+1. **The shared bundle format.** See above. Until it exists, bundles are
+   version 0.
+2. **Countdown for automatic selection.** Whether a rule may boot without a
+   countdown at all. Not relevant before rules exist.
+
+Settled since this record was proposed: `:N` keeps the last N characters,
+and a MAC address is written as 12 hexadecimal digits in upper case.

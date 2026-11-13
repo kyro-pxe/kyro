@@ -10,6 +10,6 @@ Status values: **Proposed** (under discussion), **Accepted**, **Superseded**
 | No.  | Title                                                             | Status   |
 | ---- | ----------------------------------------------------------------- | -------- |
 | 0001 | [How Windows Setup gets its install source](0001-windows-install-source.md) | Accepted |
-| 0002 | [Profiles](0002-profiles.md)                                      | Proposed |
+| 0002 | [Profiles](0002-profiles.md)                                      | Accepted |
 | 0003 | [SMB server library](0003-smb-server-library.md)                  | Accepted |
 | 0004 | [Client state and where it is stored](0004-client-state.md)       | Accepted |
