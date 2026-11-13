@@ -324,6 +324,9 @@ func (c *Config) Addr() (netip.Addr, error) {
 // TFTPEnabled reports whether the TFTP service runs.
 func (c *Config) TFTPEnabled() bool { return c.TFTP.Enabled == nil || *c.TFTP.Enabled }
 
+// TFTPEnabledValue is TFTPEnabled for a Config value instead of a pointer.
+func (c Config) TFTPEnabledValue() bool { return c.TFTPEnabled() }
+
 // HTTPBase returns the URL prefix under which clients reach the HTTP
 // service, without a trailing slash.
 func (c *Config) HTTPBase() string {

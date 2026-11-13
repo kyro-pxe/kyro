@@ -18,6 +18,40 @@
 
 package main
 
+import (
+	"fmt"
+
+	"github.com/kyro-pxe/kyro/internal/config"
+	"github.com/kyro-pxe/kyro/internal/doctor"
+)
+
 func (e *env) doctor(args []string) error {
-	return usageErr("not implemented yet")
+	c := e.command("doctor", "", `Check whether this machine is ready to run Kyro: the configuration, the
+boot interface, the ports Kyro needs, services and firewalls that get in the
+way, the boot files and the data directory. Run it as root; an ordinary
+user cannot check ports below 1024.
+
+It only looks. Where something has to change, it prints the commands and
+leaves running them to you.
+`)
+	pos, err := c.parse(args)
+	if err != nil {
+		return err
+	}
+	if len(pos) > 0 {
+		return usageErr("unexpected argument %q", pos[0])
+	}
+	cfg, cfgErr := config.Load(*c.configPath)
+	warnings, failures := doctor.Print(e.stdout, doctor.Check(doctor.Host(), *c.configPath, cfg, cfgErr))
+	fmt.Fprintln(e.stdout)
+	switch {
+	case failures > 0:
+		fmt.Fprintf(e.stdout, "%d problems that keep Kyro from working, %d warnings.\n", failures, warnings)
+		return errReported
+	case warnings > 0:
+		fmt.Fprintf(e.stdout, "No problems that keep Kyro from working. %d warnings to look at.\n", warnings)
+	default:
+		fmt.Fprintln(e.stdout, "Everything Kyro checks looks right.")
+	}
+	return nil
 }
