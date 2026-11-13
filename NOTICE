@@ -37,6 +37,11 @@ versions are recorded in go.mod.
              A fork of github.com/jcmturner/rpc (ndr).
              Apache License, version 2.0.
 
+  * go.yaml.in/yaml/v3
+             Copyright (c) 2011-2019 Canonical Ltd.
+             Apache License, version 2.0. Parts under the MIT License,
+             Copyright (c) 2006-2011 Kirill Simonov.
+
   * golang.org/x/crypto
   * golang.org/x/net
              Copyright 2009 The Go Authors. BSD 3-Clause License.
