@@ -80,6 +80,7 @@ Other targets:
 ```sh
 make test    # go test ./...
 make lint    # gofmt check and go vet
+make fuzz    # every fuzz test, one minute each (FUZZTIME=10m for longer)
 make clean   # remove build output
 ```
 

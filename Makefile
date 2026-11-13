@@ -2,7 +2,9 @@ BINARY  := bin/kyro
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
-.PHONY: build test lint clean
+FUZZTIME ?= 1m
+
+.PHONY: build test lint fuzz clean
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/kyro
@@ -18,6 +20,15 @@ lint:
 		exit 1; \
 	fi
 	go vet ./...
+
+# go test accepts one fuzz target per run, so this runs them one by one.
+fuzz:
+	@for pkg in $$(go list ./...); do \
+		for target in $$(go test -list '^Fuzz' $$pkg | grep '^Fuzz'); do \
+			echo "== $$pkg $$target"; \
+			go test -run '^$$' -fuzz "^$$target\$$" -fuzztime $(FUZZTIME) $$pkg || exit 1; \
+		done; \
+	done
 
 clean:
 	rm -rf bin dist

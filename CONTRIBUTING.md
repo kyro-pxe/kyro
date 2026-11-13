@@ -21,6 +21,7 @@ and `git`.
 make build   # builds bin/kyro
 make test    # runs go test ./...
 make lint    # checks gofmt and runs go vet
+make fuzz    # runs every fuzz test, one minute each by default
 make clean   # removes build output
 ```
 
@@ -32,6 +33,9 @@ request can be merged. CI runs the same checks.
 - Format code with `gofmt`.
 - Keep `go vet` clean.
 - Add tests for new behaviour where it is practical.
+- Code that parses input from the network gets a fuzz test. If you change
+  such code, run `make fuzz` with a longer `FUZZTIME` before you open a pull
+  request. `go test` only replays the inputs that are already recorded.
 - Start every Go source file with the GPL header used in the existing files.
 - Do not commit ISOs, WIM files or third-party binaries such as iPXE or
   wimboot.
