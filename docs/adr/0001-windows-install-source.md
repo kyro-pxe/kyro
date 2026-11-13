@@ -259,6 +259,10 @@ Everything below is a plan to be confirmed in Phase 2.
   BSD and Apache-2.0 licensed libraries qualify. The choice gets its own ADR.
   Whatever is chosen, the embedded server gets fuzz tests.
 
+  Decided in [ADR 0003](0003-smb-server-library.md): `jfjallid/go-smb` for
+  the protocol, with Kyro's own read-only file system. That record also
+  narrows the dialects above to SMB 3.1.1 only.
+
 ### Consequences
 
 - Kyro has to listen on TCP 445. That needs `CAP_NET_BIND_SERVICE` like the

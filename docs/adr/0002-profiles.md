@@ -264,9 +264,9 @@ Rules are defined here and implemented together with the menu.
   plain search and replace. That is more code, and it gets fuzz tests.
 - Delivery to Windows Setup follows ADR 0001: wimboot injects the file and
   the start script passes it with `/unattend:`. The validation spike for
-  ADR 0001 is still in progress. Until it is written up, the injection and
-  the menu are not implemented, only the store, the validation and the
-  rendering.
+  ADR 0001 confirmed that this works. The injection and the menu still have
+  to wait, because Kyro has no boot server yet that could do either. Until
+  then only the store, the validation and the rendering can be built.
 
 ## Open questions
 
