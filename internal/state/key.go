@@ -219,11 +219,11 @@ func serialKey(s string) (Key, error) {
 		return Key{}, errors.New("no identifier given")
 	}
 	clean := sanitize(s)
+	if placeholderSerial(clean) {
+		return Key{}, fmt.Errorf("%q is a placeholder that many machines report; it cannot select one of them. Use an identifier that is unique to the machine", s)
+	}
 	if clean != s {
 		return Key{}, fmt.Errorf("%q is not a MAC address, a UUID or a serial number; serial numbers are compared by their letters, digits and hyphens only, which would be %q", s, clean)
-	}
-	if placeholderSerial(clean) {
-		return Key{}, fmt.Errorf("%q is a placeholder that many machines report as their serial number; use the MAC address or the UUID", s)
 	}
 	return Key{KindSerial, strings.ToUpper(clean)}, nil
 }
