@@ -188,6 +188,28 @@ func TestFailedClientIsNotReinstalled(t *testing.T) {
 	}
 }
 
+func TestFail(t *testing.T) {
+	s := newStore(t)
+	armed := must(s.Arm(macKey, "win11", "example", false))(t)
+	if err := s.Fail(armed.Token, "too early"); !errors.Is(err, ErrNoToken) {
+		t.Errorf("Fail before the installation started: %v", err)
+	}
+	must(s.Boot(machine, ""))(t)
+	if err := s.Fail(armed.Token, "the image is gone"); err != nil {
+		t.Fatal(err)
+	}
+	c, _, _ := s.Get(macKey)
+	if c.State != Failed || c.Failure != "the image is gone" || c.FinishedAt == nil {
+		t.Errorf("after Fail: %+v", c)
+	}
+	if d := must(s.Boot(machine, ""))(t); d.Install {
+		t.Error("a failed client was installed again")
+	}
+	if err := s.Fail(armed.Token, "again"); !errors.Is(err, ErrNoToken) {
+		t.Errorf("second Fail: %v", err)
+	}
+}
+
 func TestTokens(t *testing.T) {
 	s := newStore(t)
 	armed := must(s.Arm(macKey, "win11", "example", false))(t)

@@ -459,6 +459,27 @@ func (s *Store) Provisioned(token string) (c Client, changed bool, err error) {
 	return Client{}, false, ErrNoToken
 }
 
+// Fail ends the installation under a token as failed, with the reason. It
+// is for failures that Kyro notices itself, such as an image that is gone
+// by the time the client asks for it.
+func (s *Store) Fail(token, reason string) error {
+	unlock, err := s.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	c, err := s.findToken(token)
+	if err != nil {
+		return err
+	}
+	if c == nil || c.State != Installing {
+		return ErrNoToken
+	}
+	c.State, c.FinishedAt, c.Failure = Failed, s.now(), reason
+	return s.write(c)
+}
+
 // Expire marks every client as failed that has been installing for longer
 // than timeout, and returns them.
 func (s *Store) Expire(timeout time.Duration) ([]Client, error) {
