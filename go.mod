@@ -14,5 +14,5 @@ require (
 	github.com/jfjallid/ndr v0.2.0 // indirect
 	golang.org/x/crypto v0.59.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
-	software.sslmate.com/src/go-pkcs12 v0.7.0 // indirect
+	software.sslmate.com/src/go-pkcs12 v0.7.4 // indirect
 )
