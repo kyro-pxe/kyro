@@ -174,6 +174,21 @@ import error.
 Tokens are matched on the raw bytes of the file. `&#123;&#123;mac}}` is
 therefore not a token, which gives authors a way to write a literal one.
 
+### Computer names and other per-machine values
+
+Kyro has no setting for the computer name, for passwords or for anything else
+that an answer file decides. Decided by the maintainer on 2026-11-13.
+
+- If the answer file sets `ComputerName`, with or without a token, Windows
+  uses that name. `PC-{{serial}}` is the way to give every machine a
+  predictable name without one profile per machine.
+- If the answer file does not set it, Windows Setup picks a name of its own.
+  Kyro does not add one.
+- Whatever else the answer file does is passed through unchanged. That
+  includes scripts that stop and ask the operator for input, such as a
+  console window that asks for a password. Kyro neither generates such
+  prompts nor removes them.
+
 ### Warnings and other metadata
 
 - The bundle's warnings are shown when a profile is imported and in
