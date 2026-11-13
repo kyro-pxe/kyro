@@ -23,6 +23,10 @@ change to any Microsoft file.
 | 5 | `net start msiscsi` in stock Windows PE | Fail: the service does not exist |
 | 6 | The same against embedded server candidates | Two of four candidates connect. Both install with Setup from RAM, one of them also with Setup from the share. See [Embedded server candidates](#embedded-server-candidates) |
 
+On 2026-11-13 both unattended installs were repeated against Kyro's own
+server and completed. See
+[Follow-up: Kyro's own server](#follow-up-kyros-own-server).
+
 ## Test setup
 
 - Host: Debian 13, kernel 6.12, QEMU 10.0.13 with KVM, OVMF 2025.02 (the
@@ -266,6 +270,46 @@ Size and dependencies of the two that connect:
 
 The choice between one of these and a server of our own belongs in its own
 decision record.
+
+## Follow-up: Kyro's own server
+
+Added on 2026-11-13, after
+[ADR 0003](../adr/0003-smb-server-library.md) chose `jfjallid/go-smb` for the
+protocol with Kyro's own file system behind it. The tests above were repeated
+against `kyro share`, the server of `internal/smbshare`, serving the mounted
+ISO. Start it in the harness with `spike.sh cand kyro`.
+
+It differs from the candidate tested above: SMB 3.1.1 only, opens that ask
+for write access are refused, and wildcard searches are implemented.
+
+| Test | Result |
+| ---- | ------ |
+| `net use` with the named account | Mapped in 0.4 to 0.5 s |
+| `dir` of the share root and `dir /s /b efi` | Correct |
+| `dir sources\install.*` | Lists `install.wim`. This failed against all candidates above. |
+| Copy the 612 MB `boot.wim` back and compare | Identical |
+| Unattended install, Setup from RAM (`unattend-ram`) | Installed, first logon command ran |
+| Unattended install, Setup from the share root (`unattend-share`) | Installed, first logon command ran |
+
+Both installs ran once, at the same time, on two virtual machines. The server
+logged every request:
+
+| | Setup from RAM | Setup from the share |
+| --- | --- | --- |
+| Open requests | 24 | 3,255 |
+| Different paths asked for | 3 | 1,139 |
+| Refused for asking to write | 0 | 18 |
+
+- The 18 refused requests are Setup trying to create a `$WINDOWS.~BT`
+  folder on the share, six times. It carries on without it, as it does
+  against a read-only Samba share.
+- No request asked for write access to an existing file. Refusing such
+  opens outright, which is stricter than the candidate tested above, did
+  not get in Setup's way.
+- The server logged no error and no warning during the two installs.
+
+Not repeated against `kyro share`: the interactive installs, the hardware
+requirement cases and the port other than 445.
 
 ## What changes in the design
 

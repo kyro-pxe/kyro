@@ -46,10 +46,15 @@ Kyro cannot boot anything yet.
 | Validation spike for ADR 0001 against embedded server candidates | tested | Same document. Four libraries tried. This is a test of candidates, not an implementation. |
 | Scan an images directory for ISOs | planned | |
 | Serve boot files from the ISO through wimboot | planned | |
-| Install source: embedded read-only SMB server (`smb.mode: embedded`) | planned | Linux. Default. Starts Setup from RAM by default. |
+| Validation of Kyro's own SMB server against Windows PE | tested | [Results](spikes/0001-install-source.md#follow-up-kyros-own-server). Two unattended installs from `kyro share`, one per way of starting Setup. Each ran once, one ISO, QEMU only. |
+| Read-only SMB server (`internal/smbshare`) | tested | Serves directories. SMB 3.1.1, signing required, one account. Unit tests and tests with a real client. See [ADR 0003](adr/0003-smb-server-library.md). |
+| `kyro share`: run the SMB server on its own | tested | Experimental, for testing the share. Serves one directory, for example a mounted ISO. |
+| Install source: embedded read-only SMB server (`smb.mode: embedded`) | in progress | Linux. Default. Starts Setup from RAM by default. The server exists, see the two rows above. `kyro serve` does not start it, there is no configuration, and no client is told where the share is. |
+| Reading files out of an ISO without unpacking it | planned | Windows ISOs are UDF. Until then the share needs a directory. |
+| Closing a client's old SMB connections when it boots again | in progress | The server can do it (`DropClient`). Nothing calls it yet. |
 | Start script for Windows PE: share mapping with retries, `ei.cfg` and `pid.txt`, Setup start | planned | A batch file; findings in spike 0001. |
 | Optional SMB port other than 445 (`net use /TCPPORT:`) | planned | Verified for one Windows PE build only. |
-| Fuzz tests for the embedded SMB server | planned | |
+| Fuzz tests for the embedded SMB server | tested | Raw stream, login, logged-in session, wildcard matching. Found five defects in the SMB library, listed in ADR 0003. Longest runs without a new finding, on 2026-11-13: session 20 minutes (0.8 million inputs), login 20 minutes (9.2 million), raw stream 10 minutes (4.5 million). That is little; CI only replays recorded inputs. |
 | Install source: external SMB server (`smb.mode: external`) | planned | Linux: generated Samba configuration. |
 | Install source on Windows hosts: built-in file sharing set up by Kyro | planned | Needs administrator rights. |
 | iPXE menu generated from available images | planned | |

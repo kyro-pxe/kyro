@@ -25,9 +25,10 @@ RUN="$WORK/vm$VM"
 MAC="52:54:00:77:00:0$((VM + 1))"
 VM_IP="192.168.77.8$VM"
 
-# Embedded server candidates and the address each one listens on.
+# Embedded server candidates and the address each one listens on. "kyro" is
+# Kyro's own server ("kyro share"), built from this repository.
 declare -A CAND_IP=([gosmbserver]=192.168.77.11 [facetfs]=192.168.77.12
-	[jfjallid]=192.168.77.13 [absfs]=192.168.77.14)
+	[jfjallid]=192.168.77.13 [absfs]=192.168.77.14 [kyro]=192.168.77.15)
 
 WIMBOOT_URL=https://github.com/ipxe/wimboot/releases/download/v2.9.0/wimboot
 WIMBOOT_SHA256=5f067ccdc4d084d5bf77b6c853bd0f8402dfc2b4cd1b103d358993ae97fae8e3
@@ -186,10 +187,17 @@ cmd_cand() { # name: builds and starts one embedded server candidate
 	local name=$1 ip=${CAND_IP[$1]:-}
 	[ -n "$ip" ] || die "unknown candidate: $name (${!CAND_IP[*]})"
 	mkdir -p "$WORK/bin"
-	(cd "$HERE/smbcand" && go build -o "$WORK/bin/smb-$name" "./$name")
 	pkill -f "$WORK/bin/smb-$name " && sleep 1
-	ip netns exec "$NS" "$WORK/bin/smb-$name" -addr "$ip:445" -root "$WORK/mnt" -share win11 \
-		-user "$SMB_USER" -pass "$SMB_PASS" >"$WORK/run/cand-$name.log" 2>&1 &
+	if [ "$name" = kyro ]; then
+		(cd "$HERE/../.." && go build -o "$WORK/bin/smb-kyro" ./cmd/kyro)
+		ip netns exec "$NS" "$WORK/bin/smb-kyro" share -listen "$ip:445" -root "$WORK/mnt" \
+			-name win11 -user "$SMB_USER" -password "$SMB_PASS" -debug \
+			>"$WORK/run/cand-$name.log" 2>&1 &
+	else
+		(cd "$HERE/smbcand" && go build -o "$WORK/bin/smb-$name" "./$name")
+		ip netns exec "$NS" "$WORK/bin/smb-$name" -addr "$ip:445" -root "$WORK/mnt" -share win11 \
+			-user "$SMB_USER" -pass "$SMB_PASS" >"$WORK/run/cand-$name.log" 2>&1 &
+	fi
 	echo $! >"$WORK/run/cand-$name.pid"
 	echo "spike: candidate $name listens on $ip:445"
 }

@@ -20,6 +20,7 @@ and nothing outside can reach it. Samba never listens on a host address.
 | 192.168.77.1         | DHCP and TFTP (dnsmasq), HTTP, Samba with signing **required** and a named account only |
 | 192.168.77.2         | Samba with default signing, guest access, also on port 4445. Holds the writable `log` share. |
 | 192.168.77.11 to .14 | One embedded server candidate each, started with `spike.sh cand` |
+| 192.168.77.15        | Kyro's own server (`kyro share`), started with `spike.sh cand kyro` |
 | 192.168.77.80 to .83 | The virtual machines                                   |
 
 A virtual machine is QEMU with KVM, OVMF, an emulated TPM 2.0 (swtpm), an
@@ -78,6 +79,19 @@ KYRO_SPIKE_VM=1 ./spike.sh vm-start tpm fresh
 The candidates are `gosmbserver`, `facetfs`, `jfjallid` and `absfs`. Their
 test programs are in `smbcand`, which is a Go module of its own so that the
 libraries do not become dependencies of Kyro.
+
+`kyro` is a fifth name for `cand`. It builds Kyro from this repository and
+runs `kyro share` on 192.168.77.15 with request logging switched on. Use it
+to repeat the installation test after a change to `internal/smbshare` or an
+update of the SMB library:
+
+```sh
+./spike.sh cand kyro
+KYRO_SPIKE_VM=0 KYRO_SPIKE_SERVER=192.168.77.15 ./spike.sh case unattend-ram
+KYRO_SPIKE_VM=0 ./spike.sh vm-start tpm fresh
+KYRO_SPIKE_VM=1 KYRO_SPIKE_SERVER=192.168.77.15 ./spike.sh case unattend-share
+KYRO_SPIKE_VM=1 ./spike.sh vm-start tpm fresh
+```
 
 The four libraries are MIT-licensed. The modules they pull into the test
 programs are under MIT, BSD-style or Apache-2.0 licences. None of them is
