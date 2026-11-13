@@ -13,12 +13,14 @@
 </p>
 
 > [!WARNING]
-> **Status: early development.** Kyro cannot boot anything yet. This repository
-> currently contains the project skeleton only: a CLI with `kyro version` and a
-> `kyro serve` stub that prints "not implemented yet". Everything described
-> under [Planned features](#planned-features) and
+> **Status: early development.** Kyro cannot boot anything yet. `kyro serve`
+> is a stub that prints "not implemented yet". The one part that exists is the
+> read-only SMB server that Windows Setup will install from; `kyro share` runs
+> it on its own for testing. Everything described under
+> [Planned features](#planned-features) and
 > [Architecture](#architecture-planned) is a plan, not a description of
-> existing functionality.
+> existing functionality. [docs/ROADMAP.md](docs/ROADMAP.md) has the status
+> of each item.
 
 ## Why Kyro?
 

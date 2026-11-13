@@ -18,13 +18,16 @@
 
 // Command kyro is the entry point of the Kyro PXE server.
 //
-// The project is in early development: only the CLI skeleton exists.
+// The project is in early development. It cannot boot anything yet.
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
+	"syscall"
 )
 
 // version is overridden at build time via -ldflags "-X main.version=...".
@@ -37,16 +40,21 @@ Usage:
 
 Commands:
   serve      Start the PXE server (not implemented yet)
+  share      Serve a directory as a read-only SMB share (experimental)
   version    Print the version
   help       Show this help
 `
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	code := run(ctx, os.Args[1:], os.Stdout, os.Stderr)
+	stop()
+	os.Exit(code)
 }
 
-// run executes the CLI and returns the process exit code.
-func run(args []string, stdout, stderr io.Writer) int {
+// run executes the CLI and returns the process exit code. Commands that
+// keep running stop when ctx is done.
+func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)
 		return 2
@@ -59,6 +67,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "serve":
 		fmt.Fprintln(stderr, "kyro serve: not implemented yet")
 		return 1
+	case "share":
+		return runShare(ctx, args[1:], stdout, stderr)
 	case "help", "--help", "-h":
 		fmt.Fprint(stdout, usage)
 		return 0

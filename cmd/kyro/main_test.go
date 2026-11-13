@@ -20,6 +20,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"testing"
 )
@@ -35,6 +36,15 @@ func TestRun(t *testing.T) {
 		{"version", []string{"version"}, 0, "kyro " + version, ""},
 		{"serve is a stub", []string{"serve"}, 1, "", "not implemented yet"},
 		{"help", []string{"help"}, 0, "Usage:", ""},
+		{"help lists share", []string{"help"}, 0, "share ", ""},
+		{"share without flags", []string{"share"}, 2, "", "-listen, -root and -password are required"},
+		{"share with an unknown flag", []string{"share", "-bogus"}, 2, "", "flag provided but not defined"},
+		{"share with an extra argument", []string{"share", "-listen", "127.0.0.1:0", "-root", ".", "-password", "x", "extra"}, 2, "", "unexpected argument"},
+		{"share with a missing directory", []string{"share", "-listen", "127.0.0.1:0", "-root", "/nonexistent/kyro", "-password", "x"}, 1, "", "no such file"},
+		{"share with a bad password", []string{"share", "-listen", "127.0.0.1:0", "-root", ".", "-password", "a b"}, 2, "", "invalid password"},
+		{"share with a bad share name", []string{"share", "-listen", "127.0.0.1:0", "-root", ".", "-password", "x", "-name", "a b"}, 2, "", "invalid share name"},
+		{"share with a bad address", []string{"share", "-listen", "nonsense", "-root", ".", "-password", "x"}, 1, "", "kyro share:"},
+		{"share help", []string{"share", "-h"}, 0, "", "Experimental"},
 		{"no command", nil, 2, "", "Usage:"},
 		{"unknown command", []string{"bogus"}, 2, "", `unknown command "bogus"`},
 	}
@@ -43,7 +53,7 @@ func TestRun(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 
-			if code := run(tt.args, &stdout, &stderr); code != tt.wantCode {
+			if code := run(context.Background(), tt.args, &stdout, &stderr); code != tt.wantCode {
 				t.Errorf("exit code = %d, want %d", code, tt.wantCode)
 			}
 			if !strings.Contains(stdout.String(), tt.wantStdout) {
