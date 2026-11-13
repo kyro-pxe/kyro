@@ -44,6 +44,7 @@ versions are recorded in go.mod.
 
   * golang.org/x/crypto
   * golang.org/x/net
+  * golang.org/x/sys
              Copyright 2009 The Go Authors. BSD 3-Clause License.
 
   * software.sslmate.com/src/go-pkcs12

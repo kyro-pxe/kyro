@@ -6,6 +6,7 @@ require (
 	github.com/jfjallid/go-smb v0.12.0
 	github.com/jfjallid/golog v0.4.0
 	go.yaml.in/yaml/v3 v3.0.4
+	golang.org/x/net v0.62.0
 )
 
 require (
@@ -14,6 +15,6 @@ require (
 	github.com/jfjallid/mstypes v0.0.2 // indirect
 	github.com/jfjallid/ndr v0.2.0 // indirect
 	golang.org/x/crypto v0.59.0 // indirect
-	golang.org/x/net v0.62.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
 	software.sslmate.com/src/go-pkcs12 v0.7.4 // indirect
 )
