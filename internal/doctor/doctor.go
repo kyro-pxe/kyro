@@ -82,6 +82,9 @@ type System struct {
 	FreeBytes func(dir string) (int64, bool)
 	// UserExists reports whether the machine has a user of that name.
 	UserExists func(name string) bool
+	// KyroRunning reports whether another Kyro process runs on the
+	// machine.
+	KyroRunning func() bool
 	// Euid is the effective user ID.
 	Euid int
 }
@@ -129,8 +132,29 @@ func Host() System {
 			_, err := user.Lookup(name)
 			return err == nil
 		},
-		Euid: os.Geteuid(),
+		KyroRunning: kyroRunning,
+		Euid:        os.Geteuid(),
 	}
+}
+
+// kyroRunning looks through /proc for a process named kyro other than this
+// one. It needs no program, so it also works in a container that has none.
+func kyroRunning() bool {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return false
+	}
+	self := fmt.Sprint(os.Getpid())
+	for _, e := range entries {
+		if !isNumber(e.Name()) || e.Name() == self {
+			continue
+		}
+		comm, err := os.ReadFile("/proc/" + e.Name() + "/comm")
+		if err == nil && strings.TrimSpace(string(comm)) == "kyro" {
+			return true
+		}
+	}
+	return false
 }
 
 // port is one port that Kyro listens on.
@@ -275,7 +299,7 @@ func isNumber(s string) bool {
 func checkPorts(sys System, cfg config.Config) []Finding {
 	who := listeners(sys)
 	var out []Finding
-	var free, ours []string
+	var free, ours, probably []string
 	for _, p := range ports(cfg) {
 		name := fmt.Sprintf("%s port %d (%s)", strings.ToUpper(p.proto), p.num, p.what)
 		addr := net.JoinHostPort(p.addr, fmt.Sprint(p.num))
@@ -291,6 +315,10 @@ func checkPorts(sys System, cfg config.Config) []Finding {
 			free = append(free, name)
 		case errors.Is(err, syscall.EADDRINUSE) && holder == "kyro":
 			ours = append(ours, name)
+		case errors.Is(err, syscall.EADDRINUSE) && holder == "" && sys.KyroRunning != nil && sys.KyroRunning():
+			// Without ss nobody can say who holds the port. A running
+			// Kyro is the likely answer and not a reason to fail.
+			probably = append(probably, name)
 		case errors.Is(err, syscall.EADDRINUSE):
 			if holder == "" {
 				holder = "another program"
@@ -311,6 +339,9 @@ func checkPorts(sys System, cfg config.Config) []Finding {
 	}
 	if len(ours) > 0 {
 		out = append(out, Finding{Level: OK, Title: "Ports", Detail: "Kyro is running and listens on: " + strings.Join(ours, ", ") + "."})
+	}
+	if len(probably) > 0 {
+		out = append(out, Finding{Level: Info, Title: "Ports", Detail: "In use, and Kyro is running here: " + strings.Join(probably, ", ") + ". The program 'ss' is not available to confirm that it is Kyro that holds them."})
 	}
 	if len(free) > 0 {
 		out = append(out, Finding{Level: OK, Title: "Ports", Detail: "Free: " + strings.Join(free, ", ") + "."})

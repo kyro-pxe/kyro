@@ -42,6 +42,7 @@ type fake struct {
 	free     int64
 	euid     int
 	kyroUser bool
+	kyroRuns bool
 }
 
 func (f *fake) system() System {
@@ -73,9 +74,10 @@ func (f *fake) system() System {
 			}
 			return f.addrs, f.up, nil
 		},
-		FreeBytes:  func(string) (int64, bool) { return f.free, true },
-		UserExists: func(string) bool { return f.kyroUser },
-		Euid:       f.euid,
+		FreeBytes:   func(string) (int64, bool) { return f.free, true },
+		UserExists:  func(string) bool { return f.kyroUser },
+		KyroRunning: func() bool { return f.kyroRuns },
+		Euid:        f.euid,
 	}
 }
 
@@ -179,6 +181,27 @@ LISTEN 0 511 0.0.0.0:80 0.0.0.0:*
 		"Kyro is running and listens on: UDP port 69 (TFTP).",
 		"Free: UDP port 4011 (PXE boot server).",
 	)
+}
+
+// In a container without ss, a port that is taken cannot be attributed. If
+// Kyro runs there, that is no failure; if it does not, it is.
+func TestPortsInUseWithoutSS(t *testing.T) {
+	for _, runs := range []bool{true, false} {
+		f := healthy()
+		delete(f.commands, "ss -lnpuH")
+		delete(f.commands, "ss -lnptH")
+		f.inUse = map[string]error{"udp/67": syscall.EADDRINUSE, "tcp/80": syscall.EADDRINUSE}
+		f.kyroRuns = runs
+		out, _, _ := report(t, f, testConfig(t))
+		if runs {
+			wants(t, out, "[info] Ports: In use, and Kyro is running here: UDP port 67 (DHCP), TCP port 80 (HTTP for booting clients).")
+			if strings.Contains(out, "[FAIL] UDP port 67") {
+				t.Errorf("a port held while Kyro runs is a failure:\n%s", out)
+			}
+		} else {
+			wants(t, out, "[FAIL] UDP port 67 (DHCP): In use by another program.", "[FAIL] TCP port 80")
+		}
+	}
 }
 
 func TestPortsWithoutPrivileges(t *testing.T) {
