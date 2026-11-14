@@ -657,3 +657,20 @@ func FuzzCallback(f *testing.F) {
 		}
 	})
 }
+
+// Errors are logged and kept in the client's record. They must not quote
+// the installation token or the password of the install share.
+func TestScriptErrorsDoNotQuoteSecrets(t *testing.T) {
+	const secret = "s3cret value"
+	if _, err := installScript("http://192.0.2.1", secret, "image", "profile"); err == nil || strings.Contains(err.Error(), secret) {
+		t.Errorf("token: %v", err)
+	}
+	_, err := startScript(startParams{Address: "192.0.2.1", Port: 445, Username: "kyro", Password: secret, Image: "image", Install: "sources/install.wim"})
+	if err == nil || strings.Contains(err.Error(), secret) {
+		t.Errorf("password: %v", err)
+	}
+	// What is not a secret is still named, so that the error is useful.
+	if _, err := installScript("http://192.0.2.1", "abc", "bad image", "profile"); err == nil || !strings.Contains(err.Error(), "bad image") {
+		t.Errorf("image: %v", err)
+	}
+}

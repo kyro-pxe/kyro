@@ -19,6 +19,7 @@
 package boot
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -82,8 +83,18 @@ exit 1
 
 // installScript loads Windows PE with the files of one installation.
 func installScript(base, token, image, profile string) (string, error) {
-	if !scriptBase.MatchString(base) || !scriptWord.MatchString(token) || !scriptWord.MatchString(image) || !scriptWord.MatchString(profile) {
-		return "", fmt.Errorf("refusing to write %q, %q, %q or %q into a boot script", base, token, image, profile)
+	// The errors name what is wrong and never quote the token: they are
+	// logged and kept in the client's record, and the token is the one
+	// thing that opens the files of this installation.
+	switch {
+	case !scriptBase.MatchString(base):
+		return "", fmt.Errorf("refusing to write the address %q into a boot script", base)
+	case !scriptWord.MatchString(token):
+		return "", errors.New("refusing to write the installation token into a boot script: it has characters that do not belong in one")
+	case !scriptWord.MatchString(image):
+		return "", fmt.Errorf("refusing to write the image name %q into a boot script", image)
+	case !scriptWord.MatchString(profile):
+		return "", fmt.Errorf("refusing to write the profile name %q into a boot script", profile)
 	}
 	dir := base + "/i/" + token + "/"
 	return "#!ipxe\n" +
@@ -115,10 +126,16 @@ type startParams struct {
 // install share, then start Setup from the RAM disk with the image on the
 // share and the answer file that wimboot put next to this script.
 func startScript(p startParams) ([]byte, error) {
-	for _, w := range []string{p.Address, p.Username, p.Password, p.Image} {
-		if !scriptWord.MatchString(w) {
-			return nil, fmt.Errorf("refusing to write %q into the start script", w)
+	// The password is named, not quoted: this error is logged.
+	for _, w := range []struct{ what, value string }{
+		{"the address", p.Address}, {"the user name", p.Username}, {"the image name", p.Image},
+	} {
+		if !scriptWord.MatchString(w.value) {
+			return nil, fmt.Errorf("refusing to write %s %q into the start script", w.what, w.value)
 		}
+	}
+	if !scriptWord.MatchString(p.Password) {
+		return nil, errors.New("refusing to write the password of the install share into the start script: it has characters that do not belong in one")
 	}
 	for _, path := range append([]string{p.Install}, p.Extras...) {
 		if !scriptPath.MatchString(path) {
