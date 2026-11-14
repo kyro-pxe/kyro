@@ -43,3 +43,14 @@ jobs:
 
       - name: Test
         run: go test ./...
+
+      - name: Check the shell scripts
+        run: |
+          shellcheck -s sh deploy/install.sh scripts/release/build.sh \
+            scripts/test-installer/inside.sh scripts/test-installer/inside-systemd.sh
+          shellcheck scripts/e2e/run.sh scripts/test-installer/run.sh
+
+      - name: Build the release files
+        run: |
+          ./scripts/release/build.sh v0.0.0-ci
+          (cd dist && sha256sum --check SHA256SUMS)
