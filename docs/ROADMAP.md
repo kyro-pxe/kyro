@@ -17,13 +17,14 @@ OVMF) with one ISO, the Windows 11 Enterprise evaluation. Nothing was tried
 on physical hardware.
 
 The end-to-end test (`make e2e`, [scripts/e2e](../scripts/e2e/README.md)) is
-referred to as "e2e" below. It passed three times:
+referred to as "e2e" below. It passed four times:
 
 | Date | Variant | Time |
 | ---- | ------- | ---- |
 | 2026-11-13 | Secure Boot off, Kyro as root | 27 minutes |
 | 2026-11-14 | Secure Boot off, Kyro as an unprivileged user with `CAP_NET_BIND_SERVICE` only | 40 minutes, with other work on the machine |
 | 2026-11-14 | Secure Boot enforced, Kyro unprivileged, `secure_boot: true` | 32 minutes |
+| 2026-11-14 | Secure Boot off, Kyro unprivileged, with screen recording | Not comparable: the script waited at its end because of a defect in the recorder, fixed since |
 
 ## Design
 
@@ -95,7 +96,7 @@ referred to as "e2e" below. It passed three times:
 | systemd unit with `CAP_NET_BIND_SERVICE` only | tested | Capabilities and listening ports checked on the running service in the installer test. e2e installs Windows from a Kyro that runs as an unprivileged user with that one capability and the installer's file permissions; it is started by `setpriv` there, not by systemd, so the unit's other sandbox settings were not part of an installation. |
 | Release build | tested | `make release`: tarball, installer, `SHA256SUMS` for linux/amd64; the same commit gives the same tarball. The GitHub workflow that attaches them to a draft release has never run. |
 | Docker image and Compose example | working | Built and run on a private bridge network. Not tried with host networking or a booting client. |
-| End-to-end test in QEMU | tested | `make e2e`. Three passing runs, see above. |
+| End-to-end test in QEMU | tested | `make e2e`. Four passing runs, see above. |
 | Signed releases | planned | Checksums only. |
 | linux/arm64 server | planned | |
 | Windows and macOS as server | planned | |
