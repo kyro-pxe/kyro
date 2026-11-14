@@ -53,9 +53,32 @@ func (k Key) Display() string {
 	return k.Value
 }
 
-// fileName is the name of the record of this key. Canonical values contain
-// only letters, digits and hyphens.
-func (k Key) fileName() string { return string(k.Kind) + "-" + k.Value + ".json" }
+// fileName is the name of the record of this key.
+//
+// Keys come from the network. The functions that make them leave only
+// letters, digits and hyphens in a value, but a Key can also be written as
+// a literal, so the name is checked again here, where it becomes part of a
+// path: a known kind, and a value that cannot leave the directory.
+func (k Key) fileName() (string, error) {
+	switch k.Kind {
+	case KindMAC, KindUUID, KindSerial:
+	default:
+		return "", fmt.Errorf("%q is not a kind of client identifier", string(k.Kind))
+	}
+	if k.Value == "" || len(k.Value) > 64 {
+		return "", errors.New("a client identifier has 1 to 64 characters")
+	}
+	if strings.Contains(k.Value, "/") || strings.Contains(k.Value, "\\") || strings.Contains(k.Value, "..") {
+		return "", errors.New("a client identifier cannot contain a path")
+	}
+	for i := 0; i < len(k.Value); i++ {
+		c := k.Value[i]
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-') {
+			return "", errors.New("a client identifier has letters, digits and hyphens only")
+		}
+	}
+	return string(k.Kind) + "-" + k.Value + ".json", nil
+}
 
 // Identity is what a booting machine says about itself, in canonical form.
 // A field is empty if the machine did not send a usable value.

@@ -122,11 +122,23 @@ func (s *Store) now() *time.Time {
 	return &t
 }
 
-func (s *Store) path(k Key) string { return filepath.Join(s.dir, k.fileName()) }
+// path returns where the record of a key lives. It fails for a key whose
+// name would not stay inside the directory.
+func (s *Store) path(k Key) (string, error) {
+	name, err := k.fileName()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(s.dir, name), nil
+}
 
 // read returns the record of a key, or nil if there is none.
 func (s *Store) read(k Key) (*Client, error) {
-	data, err := os.ReadFile(s.path(k))
+	path, err := s.path(k)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
@@ -135,10 +147,10 @@ func (s *Store) read(k Key) (*Client, error) {
 	}
 	var c Client
 	if err := json.Unmarshal(data, &c); err != nil {
-		return nil, fmt.Errorf("%s: %w", s.path(k), err)
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	if c.Key != k {
-		return nil, fmt.Errorf("%s: the record is for %s", s.path(k), c.Key)
+		return nil, fmt.Errorf("%s: the record is for %s", path, c.Key)
 	}
 	return &c, nil
 }
@@ -146,6 +158,10 @@ func (s *Store) read(k Key) (*Client, error) {
 // write stores a record so that a reader sees the old or the new content,
 // never half of one, and so that it survives a power cut once write returns.
 func (s *Store) write(c *Client) error {
+	path, err := s.path(c.Key)
+	if err != nil {
+		return err
+	}
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
@@ -171,7 +187,7 @@ func (s *Store) write(c *Client) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tmp.Name(), s.path(c.Key)); err != nil {
+	if err := os.Rename(tmp.Name(), path); err != nil {
 		return err
 	}
 	if d, err := os.Open(s.dir); err == nil {
@@ -182,7 +198,11 @@ func (s *Store) write(c *Client) error {
 }
 
 func (s *Store) remove(k Key) error {
-	err := os.Remove(s.path(k))
+	path, err := s.path(k)
+	if err != nil {
+		return err
+	}
+	err = os.Remove(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
@@ -212,7 +232,7 @@ func (s *Store) all() ([]*Client, error) {
 		if err := json.Unmarshal(data, &c); err != nil {
 			return nil, fmt.Errorf("%s: %w", filepath.Join(s.dir, name), err)
 		}
-		if c.Key.fileName() != name {
+		if want, err := c.Key.fileName(); err != nil || want != name {
 			return nil, fmt.Errorf("%s: the record is for %s", filepath.Join(s.dir, name), c.Key)
 		}
 		out = append(out, &c)

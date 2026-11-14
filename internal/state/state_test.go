@@ -475,7 +475,10 @@ func FuzzIdentity(f *testing.F) {
 			}
 		}
 		for _, k := range id.Keys() {
-			name := k.fileName()
+			name, err := k.fileName()
+			if err != nil {
+				t.Errorf("%v has no file name: %v", k, err)
+			}
 			if strings.ContainsAny(name, `/\`) || strings.Contains(name, "..") || filepath.Base(name) != name {
 				t.Errorf("unsafe file name %q", name)
 			}
@@ -572,4 +575,50 @@ func FuzzTransitions(f *testing.F) {
 			}
 		}
 	})
+}
+
+// A key that was not made by ParseKey or NewIdentity must not reach the
+// file system.
+func TestKeysThatWouldLeaveTheDirectory(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(filepath.Join(dir, "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(dir, "outside.json")
+	if err := os.WriteFile(outside, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []Key{
+		{KindSerial, "../outside"},
+		{KindSerial, "x/../../outside"},
+		{KindSerial, `..\outside`},
+		{KindSerial, ""},
+		{KindSerial, "a b"},
+		{KindSerial, strings.Repeat("A", 65)},
+		{Kind("../x"), "ABC"},
+		{Kind(""), "ABC"},
+	} {
+		if name, err := k.fileName(); err == nil {
+			t.Errorf("%#v got the file name %q", k, name)
+		}
+		if _, err := s.Arm(k, "image", "profile", false); err == nil {
+			t.Errorf("%#v was armed", k)
+		}
+		if err := s.Forget(k); err == nil {
+			t.Errorf("%#v was forgotten", k)
+		}
+		if _, _, err := s.Get(k); err == nil {
+			t.Errorf("%#v was read", k)
+		}
+	}
+	if _, err := os.Stat(outside); err != nil {
+		t.Errorf("the file outside the store is gone: %v", err)
+	}
+	entries, _ := os.ReadDir(filepath.Join(dir, "state"))
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), ".") {
+			t.Errorf("a record was written: %s", e.Name())
+		}
+	}
 }
