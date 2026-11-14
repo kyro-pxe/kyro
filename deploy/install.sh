@@ -30,6 +30,7 @@ base_url=${KYRO_BASE_URL:-$BASE_URL_DEFAULT}
 interface=${KYRO_INTERFACE:-}
 address=${KYRO_ADDRESS:-}
 dhcp_mode=${KYRO_DHCP_MODE:-proxy}
+secure_boot=${KYRO_SECURE_BOOT:-false}
 bootfiles_from=${KYRO_BOOTFILES_FROM:-}
 action=install
 assume_yes=0
@@ -58,6 +59,8 @@ Configuration (asked for interactively if not given):
   --interface NAME     Network interface that faces the clients.
   --address IPV4       This machine's address on that interface.
   --dhcp-mode MODE     proxy (default) or off.
+  --secure-boot        Hand UEFI clients the signed shim and iPXE, for
+                       clients with Secure Boot switched on. Experimental.
 
 Behaviour:
   -y, --yes            Ask nothing; take the given values and the defaults.
@@ -75,6 +78,7 @@ Removing:
 
 Each option has an environment variable: KYRO_VERSION, KYRO_TARBALL,
 KYRO_CHECKSUMS, KYRO_SHA256, KYRO_INTERFACE, KYRO_ADDRESS, KYRO_DHCP_MODE,
+KYRO_SECURE_BOOT (true or false),
 KYRO_BOOTFILES_FROM. An existing /etc/kyro/config.yaml is never changed.
 EOF
 }
@@ -132,6 +136,7 @@ while [ $# -gt 0 ]; do
 		address=$2
 		shift
 		;;
+	--secure-boot) secure_boot=true ;;
 	--dhcp-mode)
 		need_value "$@"
 		dhcp_mode=$2
@@ -156,6 +161,10 @@ while [ $# -gt 0 ]; do
 	shift
 done
 
+case "$secure_boot" in
+true | false) ;;
+*) die "KYRO_SECURE_BOOT=$secure_boot: use true or false" ;;
+esac
 case "$dhcp_mode" in
 proxy | off) ;;
 full) die "--dhcp-mode full is not implemented in this version of Kyro; use proxy or off" ;;
@@ -445,6 +454,9 @@ data_dir: $DATA_DIR
 
 dhcp:
   mode: $dhcp_mode
+
+# UEFI Secure Boot, experimental. See config.example.yaml.
+secure_boot: $secure_boot
 
 smb:
   # Not a secret: every client that is installed is told this password.

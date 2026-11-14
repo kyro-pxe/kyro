@@ -125,6 +125,7 @@ pass "user, directories, owners and modes"
 grep -q "^interface: $IFACE\$" /etc/kyro/config.yaml || fail "interface not in the configuration"
 grep -q "^address: $ADDR\$" /etc/kyro/config.yaml || fail "address not in the configuration"
 grep -E -q '^  password: [0-9a-f]{32}$' /etc/kyro/config.yaml || fail "no generated password"
+grep -q "^secure_boot: false\$" /etc/kyro/config.yaml || fail "secure_boot is not off by default"
 pass "configuration"
 
 kyro bootfiles verify >/dev/null || fail "the boot files are not in place"
@@ -207,13 +208,15 @@ pass "--purge twice is harmless"
 
 if [ -n "${WITH_IP:-}" ]; then
 	command -v ip >/dev/null 2>&1 || fail "WITH_IP is set but ip is not installed"
-	sh "$INSTALL" --yes --tarball "$TARBALL" --checksums "$SUMS" --bootfiles-from /bootfiles >/tmp/install3.log 2>&1 ||
+	sh "$INSTALL" --yes --secure-boot --tarball "$TARBALL" --checksums "$SUMS" --bootfiles-from /bootfiles >/tmp/install3.log 2>&1 ||
 		{
 			cat /tmp/install3.log
 			fail "the installation with detection failed"
 		}
 	grep -q "^interface: $IFACE\$" /etc/kyro/config.yaml || fail "detected the wrong interface: $(grep ^interface /etc/kyro/config.yaml)"
 	grep -q "^address: $ADDR\$" /etc/kyro/config.yaml || fail "detected the wrong address: $(grep ^address /etc/kyro/config.yaml)"
+	grep -q "^secure_boot: true\$" /etc/kyro/config.yaml || fail "--secure-boot is not in the configuration"
+	kyro doctor | grep -q "Secure Boot: Switched on" || fail "kyro doctor does not see secure_boot"
 	pass "interface and address are detected ($IFACE, $ADDR)"
 	sh "$INSTALL" --purge --yes >/dev/null
 
