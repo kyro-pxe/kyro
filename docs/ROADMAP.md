@@ -17,7 +17,7 @@ OVMF) with one ISO, the Windows 11 Enterprise evaluation. Nothing was tried
 on physical hardware.
 
 The end-to-end test (`make e2e`, [scripts/e2e](../scripts/e2e/README.md)) is
-referred to as "e2e" below. It passed four times:
+referred to as "e2e" below. It passed six times:
 
 | Date | Variant | Time |
 | ---- | ------- | ---- |
@@ -25,6 +25,11 @@ referred to as "e2e" below. It passed four times:
 | 2026-11-14 | Secure Boot off, Kyro as an unprivileged user with `CAP_NET_BIND_SERVICE` only | 40 minutes, with other work on the machine |
 | 2026-11-14 | Secure Boot enforced, Kyro unprivileged, `secure_boot: true` | 32 minutes |
 | 2026-11-14 | Secure Boot off, Kyro unprivileged, with screen recording | Not comparable: the script waited at its end because of a defect in the recorder, fixed since |
+| 2026-11-14 | Secure Boot enforced, Kyro's defaults (signed shim and iPXE), recorded in real time | 31 minutes |
+| 2026-11-14 | Secure Boot off on the machines, Kyro's defaults (signed shim and iPXE) | 27 minutes |
+
+The first, second and fourth run used the unsigned iPXE, which is now what
+`secure_boot: false` gives. The last two are what Kyro does by default.
 
 ## Design
 
@@ -44,8 +49,8 @@ referred to as "e2e" below. It passed four times:
 | DHCP switched off (`dhcp.mode: off`) | working | Kyro then expects your DHCP server to point at it. Unit tests only; no boot was tried this way. |
 | TFTP server | tested | Read-only, block size and transfer size options. Unit tests; e2e; in the installer test under systemd. |
 | HTTP boot server | tested | iPXE scripts, wimboot, the files of an installation, the callback. Unit and fuzz tests; e2e. |
-| UEFI x86-64 clients, Secure Boot off | tested | OVMF in QEMU only. |
-| UEFI x86-64 clients, Secure Boot on | tested | Experimental, off by default (`secure_boot`). [ADR 0005](adr/0005-secure-boot.md). One e2e run with OVMF and Microsoft's keys enrolled: the firmware refused the unsigned iPXE, and installed through the signed shim, iPXE and wimboot. No physical machine. A machine with Secure Boot off was booted through the same chain as far as Kyro's answer, not through an installation. |
+| UEFI x86-64 clients, Secure Boot on | tested | The default: signed shim, signed iPXE, signed wimboot, all unmodified from upstream ([ADR 0005](adr/0005-secure-boot.md)). Two e2e runs with OVMF and Microsoft's keys enrolled; each first showed that the firmware refuses the unsigned iPXE. No physical machine. Machines that do not trust Microsoft's key for other vendors' boot loaders will refuse the shim. |
+| UEFI x86-64 clients, Secure Boot off | tested | With the default signed files: one e2e run. With the unsigned iPXE (`secure_boot: false`): three e2e runs. OVMF in QEMU only. |
 | BIOS x86-64 clients | in progress | A BIOS client is offered `undionly.kpxe`. No BIOS client was ever booted. |
 | Obtaining iPXE and wimboot | tested | `kyro bootfiles fetch` downloads fixed versions from the projects' release pages and checks them against compiled-in checksums. Unit tests; one real download on 2026-11-14. Never committed, never rebuilt. |
 | YAML configuration | tested | Unit tests. Unknown keys are errors. |
@@ -96,7 +101,7 @@ referred to as "e2e" below. It passed four times:
 | systemd unit with `CAP_NET_BIND_SERVICE` only | tested | Capabilities and listening ports checked on the running service in the installer test. e2e installs Windows from a Kyro that runs as an unprivileged user with that one capability and the installer's file permissions; it is started by `setpriv` there, not by systemd, so the unit's other sandbox settings were not part of an installation. |
 | Release build | tested | `make release`: tarball, installer, `SHA256SUMS` for linux/amd64; the same commit gives the same tarball. The GitHub workflow that attaches them to a draft release has never run. |
 | Docker image and Compose example | working | Built and run on a private bridge network. Not tried with host networking or a booting client. |
-| End-to-end test in QEMU | tested | `make e2e`. Four passing runs, see above. |
+| End-to-end test in QEMU | tested | `make e2e`. Six passing runs, see above. |
 | Signed releases | planned | Checksums only. |
 | linux/arm64 server | planned | |
 | Windows and macOS as server | planned | |

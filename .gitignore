@@ -38,3 +38,6 @@ Thumbs.db
 *.iso
 *.wim
 /images/
+
+# Python
+__pycache__/

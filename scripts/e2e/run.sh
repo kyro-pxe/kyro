@@ -20,11 +20,15 @@ RAM="${KYRO_E2E_RAM:-6G}"
 # The user that kyro serve runs as. It gets the one capability of the
 # systemd unit and the file permissions that the installer sets up.
 SVC_USER="${KYRO_E2E_USER:-nobody}"
-# 1 runs the whole test with UEFI Secure Boot enforced on the machines and
-# secure_boot switched on in Kyro.
-SECURE_BOOT="${KYRO_E2E_SECURE_BOOT:-0}"
-# 1 records the screen of the installed machine, a frame a second, and
-# makes a video of it. Needs ffmpeg.
+# 1 (the default) gives the machines firmware that enforces UEFI Secure
+# Boot. 0 gives them firmware with Secure Boot off; Kyro still hands out the
+# signed shim and iPXE, as it does by default.
+SECURE_BOOT="${KYRO_E2E_SECURE_BOOT:-1}"
+# 1 switches secure_boot off in Kyro, which then hands out the unsigned
+# iPXE. Only together with KYRO_E2E_SECURE_BOOT=0.
+UNSIGNED="${KYRO_E2E_UNSIGNED:-0}"
+# 1 records the screen of the installed machine in real time and makes a
+# video of it. Needs ffmpeg and Python with Pillow.
 RECORD="${KYRO_E2E_RECORD:-0}"
 OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.secboot.fd}"
 if [ "$SECURE_BOOT" = 1 ]; then
@@ -98,7 +102,7 @@ status:
 smb:
   password: e2e-not-a-secret
 install_timeout: 3h
-secure_boot: $([ "$SECURE_BOOT" = 1 ] && echo true || echo false)
+secure_boot: $([ "$UNSIGNED" = 1 ] && echo false || echo true)
 CONF
 
 	# The layout of install.sh: the service reads everything and writes
@@ -248,28 +252,10 @@ cmd_vm_stop() { # number
 	rm -f -- "${run:?}/mon.sock" "${run:?}/rec.sock" "${run:?}/vnc.sock" "${run:?}/swtpm.sock" "${run:?}/qemu.pid"
 }
 
-# record takes a picture of a machine's screen about once a second until
-# the machine is gone. It has a monitor of its own, so that it never gets
-# in the way of the test's commands.
-record() { # number directory
-	local vm=$1 dir=$2 n=0 sock="$WORK/vm$1/rec.sock"
-	mkdir -p "$dir"
-	while [ -S "$sock" ]; do
-		echo "screendump $dir/current.ppm" | socat - "UNIX-CONNECT:$sock" >/dev/null 2>&1 || break
-		sleep 0.8
-		n=$((n + 1))
-		ffmpeg -loglevel error -y -i "$dir/current.ppm" -q:v 3 "$dir/$(printf 'frame-%06d.jpg' "$n")" 2>/dev/null || true
-	done
-	rm -f -- "${dir:?}/current.ppm"
-}
-
-# cmd_video turns recorded frames into a video, 30 frames a second: half
-# a minute of installation per second of video.
-cmd_video() { # frames-directory output.mp4
-	need ffmpeg
-	ffmpeg -loglevel error -y -framerate 30 -pattern_type glob -i "$1/frame-*.jpg" \
-		-vf "scale=1280:800:force_original_aspect_ratio=decrease,pad=1280:800:(ow-iw)/2:(oh-ih)/2,format=yuv420p" \
-		-c:v libx264 -crf 24 -movflags +faststart "$2"
+# cmd_video turns a recording into a video that plays in real time.
+cmd_video() { # frames-directory output.mp4 [caption]
+	need ffmpeg python3
+	python3 "$HERE/record.py" video "$@"
 }
 
 cmd_shot() { # number file.ppm
@@ -322,13 +308,19 @@ windows_since() {
 }
 
 cmd_run() {
-	local results started t0 during lines mac1 recorder
+	local results started t0 during lines mac1 recorder caption
 	started=$(date +%s)
 	results="$WORK/results/$(date +%Y%m%d-%H%M%S)"
 	# The trap runs after this function has returned, when its local
 	# variables are gone. The path is therefore written into the trap.
 	# shellcheck disable=SC2064
 	trap "collect '$results'; cmd_down" EXIT
+	if [ "$SECURE_BOOT" = 1 ] && [ "$UNSIGNED" = 1 ]; then
+		die "KYRO_E2E_UNSIGNED=1 needs KYRO_E2E_SECURE_BOOT=0: firmware with Secure Boot refuses the unsigned iPXE"
+	fi
+	caption="Secure Boot on"
+	[ "$SECURE_BOOT" = 1 ] || caption="Secure Boot off"
+	[ "$UNSIGNED" = 1 ] && caption="$caption, unsigned iPXE"
 	cmd_up
 	mkdir -p "$results"
 
@@ -339,6 +331,8 @@ cmd_run() {
 		# refuse to start it. Otherwise the rest would prove nothing.
 		sed -i 's/^secure_boot: true$/secure_boot: false/' "$KYRO_CONFIG"
 		cmd_kyro_start
+		expect "Kyro warns that this setting locks such machines out" \
+			"$("$KYRO" doctor | grep -c 'WARN. Secure Boot: Switched off')" 1
 		cmd_vm_start 1 fresh
 		wait_for 120 yes "the firmware downloads the unsigned iPXE" \
 			sh -c "grep -q 'tftp: file sent.*file=ipxe.efi bytes=1148416' '$WORK/log/kyro.log' && echo yes"
@@ -364,7 +358,7 @@ cmd_run() {
 	wait_for 180 unknown "machine 1 asks Kyro what to boot" state 1
 	sleep 20
 	mac1=$(vm_mac 1 | tr -d : | tr a-f A-F)
-	if [ "$SECURE_BOOT" = 1 ]; then
+	if [ "$UNSIGNED" != 1 ]; then
 		expect "it came through the signed shim" "$([ "$(count 'tftp: file sent.*file=ipxe-shim.efi')" -ge 1 ] && echo yes)" yes
 		expect "and the signed iPXE" "$([ "$(count 'tftp: file sent.*file=ipxe.efi bytes=397160')" -ge 1 ] && echo yes)" yes
 	fi
@@ -386,7 +380,9 @@ cmd_run() {
 	t0=$(date +%s)
 	cmd_vm_start 0 fresh
 	if [ "$RECORD" = 1 ]; then
-		record 0 "$results/frames" &
+		# A monitor of its own, so that recording never gets in the way of
+		# the test's commands.
+		python3 "$HERE/record.py" capture "$WORK/vm0/rec.sock" "$results/frames" &
 		recorder=$!
 	fi
 	wait_for 300 installing "machine 0 is given the installer" state 0
@@ -427,9 +423,9 @@ cmd_run() {
 	if [ "$RECORD" = 1 ]; then
 		# Only the recorder: Kyro is a background job of this shell too.
 		wait "$recorder" || true
-		cmd_video "$results/frames" "$results/install.mp4" && say "video: $results/install.mp4"
+		cmd_video "$results/frames" "$results/install.mp4" "Kyro network install, real time, $caption" && say "video: $results/install.mp4"
 	fi
-	[ "$SECURE_BOOT" = 1 ] && say "This run had UEFI Secure Boot enforced on both machines."
+	say "This run: $caption."
 	say "ALL CHECKS PASSED in $((($(date +%s) - started) / 60)) minutes. Evidence is in $results"
 }
 
