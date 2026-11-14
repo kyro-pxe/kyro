@@ -47,9 +47,9 @@ import (
 
 // BundleVersion is the version of the bundle format that this Kyro reads.
 //
-// Version 0 is provisional. The format shared with the Kyro website was not
-// final when the alpha was built; it will get version 1 or higher, so that
-// the two cannot be confused.
+// docs/adr/0002-profiles.md is the specification; the generator on the Kyro
+// website is built from it. The version is 0 while Kyro is an alpha and the
+// format may still change from one release to the next.
 const BundleVersion = 0
 
 // Bundle is the JSON document in which profiles are exchanged.

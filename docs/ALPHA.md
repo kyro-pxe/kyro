@@ -10,7 +10,7 @@ What actually works is in [ROADMAP.md](ROADMAP.md), nowhere else.
 ## In scope
 
 - Linux server, x86-64. UEFI clients with Secure Boot switched off.
-  Secure Boot was added later as an experimental option
+  Secure Boot was added later and is on by default
   ([ADR 0005](adr/0005-secure-boot.md)).
 - The boot chain: proxyDHCP, TFTP, HTTP, iPXE, wimboot, Windows PE, and the
   SMB install share of [ADR 0001](adr/0001-windows-install-source.md).
@@ -90,7 +90,7 @@ Filled in as the acceptance tests were run. Nothing here is estimated.
 
 | No. | Result |
 | --- | ------ |
-| A1 | Passed three times. 2026-11-13: `provisioned` after 25 minutes, the whole test took 27. 2026-11-14, with Kyro unprivileged: after 36 minutes, 40 in all, while other work ran on the machine. 2026-11-14, with Secure Boot enforced: 32 minutes in all. |
+| A1 | Passed six times; the roadmap lists the runs. The first three: 2026-11-13: `provisioned` after 25 minutes, the whole test took 27. 2026-11-14, with Kyro unprivileged: after 36 minutes, 40 in all, while other work ran on the machine. 2026-11-14, with Secure Boot enforced: 32 minutes in all. |
 | A2 | Passed in each of these runs: three network boots during the installation and one after a reset were sent to the disk; the installer was handed out once; Windows came up from the disk. |
 | A3 | Passed in each of these runs: the second machine was sent to its disk, nothing was handed out, its disk stayed empty. |
 | A4 | Passed: unit tests, and in the same run `kyro arm` without `--confirm-wipe` was refused and left no record. |
@@ -102,17 +102,21 @@ Known oddity: iPXE waits about four seconds between its DHCP exchange and
 its first HTTP request. A packet capture showed that it sends nothing to
 port 4011 in that time. The cause was not found.
 
+## Questions that were open, and the answers
+
+Decided by the maintainer on 2026-11-14.
+
+1. **Bundle format.** ADR 0002 is the specification; the website's
+   generator is built from this repository's documents and follows them.
+   The version stays 0 during the alpha.
+2. **A fourth token.** `{{callback_url}}` stays.
+3. **Secure Boot.** On by default.
+4. **Install share.** The embedded SMB server of ADR 0001 (option A there),
+   built the way ADR 0003 decided.
+
 ## Open questions for the maintainer
 
-Each has a default that the work proceeded with.
-
-1. **Bundle format.** The field list shared with the website was never added
-   to ADR 0002. Default: a provisional format with `"bundle_version": 0`, so
-   that it cannot be confused with the real one later.
-2. **A fourth token.** The example profile has to know where to send the
-   callback. Default: `{{callback_url}}`, filled in by Kyro, not by the
-   client.
-3. **Release signatures.** Default: none in the alpha, checksums only, listed
-   as a known limitation.
-4. **Defects in the SMB library.** ADR 0003 lists five. Whether and how to
+1. **Release signatures.** None so far, checksums only, listed as a known
+   limitation.
+2. **Defects in the SMB library.** ADR 0003 lists five. Whether and how to
    report them upstream is yours to decide.

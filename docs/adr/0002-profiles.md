@@ -1,8 +1,8 @@
 # ADR 0002: Profiles
 
-- **Status:** Accepted for the alpha on 2026-11-14, with a provisional
-  bundle format (version 0, see [Bundle format](#bundle-format)). The format
-  shared with `kyro-pxe/website` is still open and will get a higher version.
+- **Status:** Accepted on 2026-11-14. This record is the specification of
+  the bundle format (see [Bundle format](#bundle-format)); the generator on
+  the Kyro website is built from it and follows it.
   Automatic selection by rules is not part of the alpha; clients are armed
   one at a time ([ADR 0004](0004-client-state.md)).
 - **Date:** 2026-11-12
@@ -55,11 +55,16 @@ answer file and its metadata. What this record relies on:
 - the Windows builds the profile supports;
 - a size limit of 2 MiB for the whole bundle.
 
-**Version 0 (provisional).** The field list that the website and Kyro are
-meant to share was not available when the alpha was built. So that Kyro has
-a bundle format at all, the alpha defines this one and gives it version 0.
-The shared format will get version 1 or higher, and a Kyro that reads it
-will say so; the two cannot be confused.
+**This table is the specification.** The website's generator is built from
+this document, not the other way round: a change to the format is made here
+first, and the generator follows.
+
+**Version 0.** The format carries version 0 while Kyro is an alpha. Until
+version 1, a field may be added, renamed or removed in a new release of
+Kyro; such a change is recorded in this document, and a Kyro that meets a
+version it does not read refuses the bundle and says which versions it
+reads. Version 1 will be the first one that later releases promise to keep
+reading.
 
 | Field | Type | Required | Meaning |
 | ----- | ---- | -------- | ------- |
@@ -314,10 +319,10 @@ Rules are defined here and implemented together with the menu.
 
 ## Open questions
 
-1. **The shared bundle format.** See above. Until it exists, bundles are
-   version 0.
-2. **Countdown for automatic selection.** Whether a rule may boot without a
+1. **Countdown for automatic selection.** Whether a rule may boot without a
    countdown at all. Not relevant before rules exist.
 
-Settled since this record was proposed: `:N` keeps the last N characters,
+Settled since this record was proposed: this record is the specification
+of the bundle format, and the website follows it; `{{callback_url}}` stays;
+`:N` keeps the last N characters,
 and a MAC address is written as 12 hexadecimal digits in upper case.
