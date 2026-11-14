@@ -1,8 +1,7 @@
 # web
 
-Placeholder for the planned web UI.
+Placeholder for a planned web interface.
 
-Nothing is implemented yet. The intended purpose is a browser interface for
-managing boot images and their settings; see
-[docs/architecture.md](../docs/architecture.md) for the design plan. The
-technology choice for the UI is still open.
+Nothing is here yet. Kyro's read-only status page is part of the server
+(`internal/boot`), not of this directory. A web interface that changes
+anything is planned; see [docs/ROADMAP.md](../docs/ROADMAP.md).

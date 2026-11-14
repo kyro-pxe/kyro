@@ -3,7 +3,7 @@
 <h1 align="center">Kyro</h1>
 
 <p align="center">
-  An open-source PXE server for booting custom Windows 11 ISOs over the network.
+  An open-source PXE server that installs Windows 11 over the network, unattended.
 </p>
 
 <p align="center">
@@ -13,57 +13,155 @@
 </p>
 
 > [!WARNING]
-> **Status: early development.** Kyro cannot boot anything yet. `kyro serve`
-> is a stub that prints "not implemented yet". The one part that exists is the
-> read-only SMB server that Windows Setup will install from; `kyro share` runs
-> it on its own for testing. Everything described under
-> [Planned features](#planned-features) and
-> [Architecture](#architecture-planned) is a plan, not a description of
-> existing functionality. [docs/ROADMAP.md](docs/ROADMAP.md) has the status
-> of each item.
+> **Status: alpha.** Kyro has installed Windows 11 end to end in one
+> environment only: virtual machines (QEMU, UEFI, Secure Boot off) with the
+> Windows 11 Enterprise evaluation ISO. It has not been tried on physical
+> hardware. Kyro wipes the disks of the machines you arm, and anyone on the
+> boot network can read what it serves. Read
+> [Known limitations](#known-limitations) and
+> [docs/security-model.md](docs/security-model.md) first.
+> [docs/ROADMAP.md](docs/ROADMAP.md) has the honest status of every item.
 
-## Why Kyro?
+## What it does
 
-Installing Windows over the network usually means either assembling DHCP, TFTP,
-HTTP, iPXE and wimboot by hand, or using a tool such as iVentoy that makes this
-convenient but is not fully open source.
+You give Kyro a Windows 11 ISO and an answer file (`autounattend.xml`), and
+you **arm** a machine by its MAC address, UUID or serial number. The next
+time that machine boots from the network, Kyro installs Windows on it
+without anyone touching it. The installed system reports back, and
+`kyro clients` shows it as `provisioned`.
 
-Kyro aims to be the convenient option with fully open source code: one static
-binary that you point at your Windows 11 ISOs, licensed under the GPLv3 so that
-anyone can read, audit and change every part of it.
+- One static binary: proxyDHCP, TFTP, HTTP and a read-only SMB server in
+  one process. It runs next to your existing DHCP server and changes nothing
+  on it.
+- ISOs are read in place. Nothing is unpacked or mounted.
+- A machine is armed for **one** installation. Every later network boot is
+  sent to the local disk, so a machine that always boots from the network
+  is not reinstalled in a loop.
+- A machine that is not armed never gets an installer.
+- Kyro does not generate answer files. You bring your own, and it fills in
+  per-machine values such as `{{mac}}` or `{{serial}}`.
 
-## Planned features
+Kyro contains no Microsoft software. You need your own Windows ISO and
+licenses. iPXE and wimboot are separate programs (GPLv2) that Kyro downloads
+unmodified from their projects at setup time; see [NOTICE](NOTICE).
 
-None of the following is implemented yet.
+## Quick start
 
-- Boot custom Windows 11 ISOs over the network without unpacking them by hand
-- Built-in DHCP and proxyDHCP, so Kyro can run alongside an existing DHCP server
-- Built-in TFTP and HTTP servers for the boot files
-- iPXE boot menu generated from the available images
-- Optional `autounattend.xml` per image for unattended installations
-- Web UI for managing images
-- Single static binary, with Docker and systemd deployment files
+You need a Linux server (x86-64, systemd) on the same network as the
+machines, a DHCP server on that network, and a Windows 11 ISO. The client
+needs UEFI with **Secure Boot switched off** and network boot first in its
+boot order.
 
-## Architecture (planned)
+**1. Install.** The installer verifies the release's checksum, creates a
+`kyro` user, writes `/etc/kyro/config.yaml` and starts the service.
+[docs/install.md](docs/install.md) has the details.
 
+```sh
+curl -fsSLO https://github.com/kyro-pxe/kyro/releases/download/v0.1.0-alpha/install.sh
+curl -fsSLO https://github.com/kyro-pxe/kyro/releases/download/v0.1.0-alpha/SHA256SUMS
+sha256sum --check --ignore-missing SHA256SUMS
+sudo sh install.sh
 ```
-PXE client
-   |
-   |  1. DHCP / proxyDHCP   boot server and boot file
-   |  2. TFTP               iPXE bootloader
-   |  3. HTTP               iPXE script, boot menu
-   |  4. HTTP               wimboot and boot files from the ISO
-   v
-Windows PE  ->  Windows Setup, optionally with autounattend.xml
+
+**2. Check the machine.** `kyro doctor` looks at ports, conflicting
+services, the firewall and disk space. It changes nothing; it prints the
+commands for you to run.
+
+```sh
+sudo kyro doctor
 ```
 
-iPXE and wimboot are separate third-party projects. Kyro is intended to use
-them as unmodified binaries; they are not part of this repository (see
-[NOTICE](NOTICE)).
+**3. Add an image.**
 
-See [docs/architecture.md](docs/architecture.md) for the full design plan,
-[docs/ROADMAP.md](docs/ROADMAP.md) for the status of each planned item, and
-[docs/adr](docs/adr/README.md) for design decisions.
+```sh
+sudo kyro image add /path/to/windows11.iso --name win11
+```
+
+**4. Add a profile.** Import your own answer file:
+
+```sh
+sudo kyro profile import /path/to/autounattend.xml --name office
+```
+
+Or, to try Kyro on a **test machine**, the built-in example. It is a test
+fixture: it wipes disk 0, installs the first edition in the image and
+creates an administrator with a public password. Do not use it on a machine
+you care about.
+
+```sh
+sudo kyro profile import --example
+```
+
+Kyro shows the profile's warnings on import and again when you arm.
+
+**5. Arm a client.** A profile that wipes a disk needs `--confirm-wipe`.
+
+```sh
+sudo kyro arm 52:54:00:12:34:56 --image win11 --profile kyro-example --confirm-wipe
+```
+
+**6. Boot the client from the network and watch.**
+
+```sh
+sudo kyro clients          # unknown, armed, installing, provisioned, failed
+journalctl -u kyro -f
+```
+
+The state goes from `armed` to `installing` when the client fetches the
+installer, and to `provisioned` when the installed system calls back. In
+Kyro's own test run that took 25 minutes on a virtual machine. A client
+that does not call back within `install_timeout` (3 hours) becomes `failed`.
+
+For `provisioned` to appear, the answer file has to make the installed
+system call back. `kyro profile show kyro-example --xml` shows how the
+example does it with one `FirstLogonCommands` entry and the token
+`{{callback_url}}`.
+
+A read-only status page is at `http://127.0.0.1:8080` on the server.
+
+To take an arming back: `kyro disarm <client>`. To install the same machine
+again: arm it again.
+
+## Known limitations
+
+- **Tested in virtual machines only.** One ISO (Windows 11 Enterprise
+  evaluation), QEMU with OVMF, one full run. No physical hardware, no other
+  editions or languages.
+- **Secure Boot is not supported.** Switch it off on the client for the
+  installation.
+- **UEFI x86-64 clients only.** BIOS clients are untested. No ARM.
+- **Linux server only**, x86-64.
+- **An existing DHCP server is required.** `dhcp.mode: full` is not
+  implemented.
+- **Network drivers.** Windows PE must have a driver for the client's
+  network card. Kyro cannot add drivers yet.
+- **No authentication of clients.** A machine is selected by the MAC
+  address, UUID or serial number it claims. Another machine on the boot
+  network can claim it and receives the installer and the answer file.
+- **Everything is plain HTTP and SMB.** Anyone on the boot network can read
+  the ISO contents and, during an installation, the answer file with all
+  its passwords. Use an isolated boot network.
+- **The callback is not authentication.** It marks progress. Whoever sees
+  the token on the network can report "done".
+- **No web interface.** The status page only shows state.
+- **Release checksums only, no signatures.**
+- **The profile bundle format is provisional** (`"bundle_version": 0`) and
+  will change.
+- **Docker:** the Compose example was not tested with a booting client.
+- The embedded SMB server uses a library in which fuzzing found defects;
+  see [ADR 0003](docs/adr/0003-smb-server-library.md).
+
+## Documentation
+
+| Document | Content |
+| -------- | ------- |
+| [docs/install.md](docs/install.md) | Installer, files, the service's privileges, uninstalling |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Status of every item |
+| [docs/architecture.md](docs/architecture.md) | How a boot works |
+| [docs/security-model.md](docs/security-model.md) | What Kyro does and does not protect against |
+| [docs/adr](docs/adr/README.md) | Design decisions, including the profile format |
+| [docs/ALPHA.md](docs/ALPHA.md) | Plan and acceptance tests of this alpha |
+| [deploy/docker](deploy/docker/README.md) | Docker Compose example |
 
 ## Building
 
@@ -80,17 +178,19 @@ make build
 Other targets:
 
 ```sh
-make test    # go test ./...
-make lint    # gofmt check and go vet
-make fuzz    # every fuzz test, one minute each (FUZZTIME=10m for longer)
-make clean   # remove build output
+make test            # go test ./...
+make lint            # gofmt, go vet, shellcheck
+make fuzz            # every fuzz test, one minute each (FUZZTIME=10m for longer)
+make release VERSION=v0.1.0-alpha   # release files in dist/, publishes nothing
+make test-installer  # install.sh in containers; see scripts/test-installer
+make e2e             # installs Windows in a virtual machine; see scripts/e2e
+make clean
 ```
 
 ## Contributing
 
-Contributions are welcome, and this early stage is a good time to discuss the
-design. Please read [CONTRIBUTING.md](CONTRIBUTING.md) first. Everyone taking
-part in the project is expected to follow the
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md)
+first. Everyone taking part in the project is expected to follow the
 [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Security

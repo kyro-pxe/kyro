@@ -18,7 +18,7 @@
 
 // Command kyro is the Kyro PXE server and its management tool.
 //
-// The project is in early development. See docs/ROADMAP.md for what works.
+// The project is an alpha. See docs/ROADMAP.md for what works.
 package main
 
 import (

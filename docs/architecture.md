@@ -1,88 +1,126 @@
-# Architecture (design plan)
+# Architecture
 
-> **This document is a design plan.** Almost nothing described here is
-> implemented yet, and Kyro cannot boot anything. [ROADMAP.md](ROADMAP.md)
-> says what exists. Details will change as the implementation progresses.
+This describes Kyro as it is in the alpha. [ROADMAP.md](ROADMAP.md) says how
+well each part is tested; [security-model.md](security-model.md) says what
+it does not protect against.
 
-## Goal
-
-Boot Windows 11 setup on a PXE client directly from an ISO stored on the Kyro
-server, with as little manual preparation as possible.
-
-## Planned boot chain
+## One boot, step by step
 
 ```
-DHCP / proxyDHCP  ->  TFTP / HTTP  ->  iPXE  ->  wimboot  ->  Windows PE / Setup
+client firmware                 Kyro                          your DHCP server
+      |  DHCPDISCOVER (broadcast) |                                 |
+      |-------------------------->|-------------------------------->|
+      |  address                  |                                 |
+      |<------------------------------------------------------------|
+      |  boot server + boot file  |  proxyDHCP, port 67 and 4011
+      |<--------------------------|
+      |  TFTP: ipxe.efi           |
+      |<--------------------------|
+iPXE  |  DHCP again, as "iPXE"    |
+      |  -> http://kyro/boot.ipxe |
+      |  GET /boot?mac=..&uuid=..&serial=..
+      |-------------------------->|  looks the client up
+      |                           |
+      |  not armed: "exit 1"      |  -> firmware boots the next entry: the disk
+      |  armed:     install script|  -> record becomes "installing" first
+      |  GET /wimboot, /i/<token>/boot.wim, start script, answer file
+      |<--------------------------|
+Windows PE
+      |  net use \\kyro\install   |  SMB, read-only
+      |  setup.exe /unattend:...  |
+      |  ... Setup restarts the machine; each network boot gets "exit 1" ...
+installed Windows
+      |  POST /api/v1/callback/<token>
+      |-------------------------->|  record becomes "provisioned"
 ```
 
-1. **DHCP / proxyDHCP.** The client's PXE firmware sends a DHCP request. Kyro
-   answers with the boot server address and the boot file name. Two modes are
-   planned:
-   - *proxyDHCP*: an existing DHCP server keeps assigning addresses and Kyro
-     only adds the boot information. This is the intended default, because it
-     needs no changes to the existing network.
-   - *full DHCP*: Kyro also assigns addresses, for isolated networks.
-2. **TFTP / HTTP.** The firmware downloads the iPXE bootloader that matches its
-   architecture and firmware type. TFTP is planned for firmware that supports
-   nothing else, HTTP for UEFI HTTP boot and for everything after iPXE has
-   started.
-3. **iPXE.** iPXE requests a boot script from Kyro over HTTP. Kyro generates
-   the script, including a menu of the available images.
-4. **wimboot.** For the selected image, iPXE loads wimboot together with the
-   boot files from the ISO (boot manager, BCD, `boot.sdi`, `boot.wim`) over
-   HTTP.
-5. **Windows PE / Setup.** wimboot starts Windows PE from `boot.wim`. Windows
-   PE then needs access to the remaining installation files from the ISO to run
-   Windows Setup. [ADR 0001](adr/0001-windows-install-source.md) decides on a
-   read-only SMB share, by default served by Kyro itself. The server for
-   that share exists (`internal/smbshare`) and can be run on its own with
-   `kyro share`. Nothing starts it as part of a boot yet.
+1. **proxyDHCP.** The firmware broadcasts a DHCP request. Your DHCP server
+   answers with an address. Kyro answers next to it with the boot
+   information only, and never hands out addresses. Replies are broadcasts
+   from an ordinary UDP socket, which is why no raw socket is needed.
+2. **TFTP.** The firmware downloads iPXE (`ipxe.efi` for UEFI).
+3. **iPXE.** iPXE asks again, is recognised by its user class and is given
+   an HTTP address. From here on everything is HTTP.
+4. **The decision.** iPXE sends the client's MAC address, SMBIOS UUID and
+   serial number. Kyro looks for a record under each. Only an `armed` client
+   gets the installer; the record is written as `installing` before the
+   answer is sent. Everyone else gets `exit 1`, on which UEFI firmware goes
+   on to its next boot entry.
+5. **wimboot and Windows PE.** iPXE loads wimboot, `boot.wim` out of the
+   ISO, a start script and the rendered answer file, all under a path that
+   contains the token of this one installation.
+6. **Setup.** The start script maps the install share and starts
+   `setup.exe` from RAM with the answer file and `install.wim` from the
+   share ([ADR 0001](adr/0001-windows-install-source.md)).
+7. **Callback.** The answer file makes the installed system send one HTTP
+   request to the callback address. Kyro marks the client `provisioned`.
 
-## Planned components
+## Components
 
-| Component        | Location          | Planned responsibility                                |
-| ---------------- | ----------------- | ----------------------------------------------------- |
-| CLI              | `cmd/kyro`        | Entry point, configuration, starting the services     |
-| DHCP             | `internal/dhcp`   | DHCP and proxyDHCP responder                          |
-| TFTP             | `internal/tftp`   | Read-only TFTP server for the iPXE bootloader         |
-| iPXE             | `internal/ipxe`   | Generating iPXE boot scripts and menus                |
-| Images           | `internal/images` | Discovering ISOs, reading their contents, per-image settings |
-| Install share    | `internal/smbshare` | Read-only SMB server that Windows Setup installs from |
-| Web UI           | `web`             | Managing images in the browser                        |
-| Deployment files | `deploy`          | Docker image and systemd unit                         |
+| Package | Responsibility |
+| ------- | -------------- |
+| `cmd/kyro` | The CLI: `serve`, `doctor`, `image`, `profile`, `bootfiles`, `arm`, `disarm`, `clients`, `share` |
+| `internal/config` | The YAML configuration and its validation |
+| `internal/server` | Starts all services in one process |
+| `internal/dhcp` | DHCP packet parsing and the proxyDHCP responder |
+| `internal/tftp` | Read-only TFTP server |
+| `internal/boot` | The HTTP side: iPXE scripts, the start script, per-installation files, the callback, the status page |
+| `internal/state` | Client records and the state machine ([ADR 0004](adr/0004-client-state.md)) |
+| `internal/images` | The image store; presents all ISOs as one file tree |
+| `internal/udf` | Reads files out of an ISO without mounting it |
+| `internal/wim` | Reads edition names out of a WIM file |
+| `internal/profiles` | The profile store, validation, token substitution ([ADR 0002](adr/0002-profiles.md)) |
+| `internal/smbshare` | Read-only SMB server ([ADR 0003](adr/0003-smb-server-library.md)) |
+| `internal/bootfiles` | Downloads iPXE and wimboot and checks them against compiled-in checksums |
+| `internal/doctor` | The checks of `kyro doctor` |
+| `internal/fsutil` | Atomic file writes |
 
-Today `internal/smbshare` and `cmd/kyro` contain code. The other `internal`
-packages are empty placeholders.
+`web/` is a placeholder. There is no web interface beyond the read-only
+status page.
 
-## Images and unattended installation
+## Data
 
-- An image is a Windows 11 ISO provided by the user. Kyro does not ship or
-  download Windows.
-- Each image can optionally have its own `autounattend.xml`, which Kyro is
-  intended to pass to Windows Setup so that an installation can run unattended.
-- The web UI is intended for adding and removing images and for editing their
-  settings, including the `autounattend.xml`.
+Everything is under `data_dir` (`/var/lib/kyro`):
+
+| Directory | Content | Written by |
+| --------- | ------- | ---------- |
+| `images/` | ISOs (or links to them) and one JSON file each | CLI |
+| `profiles/` | One directory per profile: the answer file as imported, and its metadata | CLI |
+| `boot/` | `ipxe.efi`, `undionly.kpxe`, `wimboot` | CLI (`kyro bootfiles fetch`) |
+| `state/` | One JSON file per client | CLI and service, under a file lock |
+
+The CLI works on these files directly and does not talk to the service, so
+it works whether or not the service runs.
+
+## Client states
+
+`unknown`, `armed`, `installing`, `provisioned`, `failed`. ADR 0004 has the
+diagram and the rules. The two that matter most:
+
+- Only `armed` leads to an installation, and getting the installer ends
+  being armed.
+- Arming for a profile that wipes a disk needs `--confirm-wipe`.
 
 ## Third-party components
 
 [iPXE](https://ipxe.org/) and [wimboot](https://github.com/ipxe/wimboot) are
-separate projects licensed under the GPLv2. Kyro is intended to use them as
-separate, unmodified binaries. They are not part of this repository; see
-[NOTICE](../NOTICE). How Kyro obtains these binaries (download, packaging,
-user-supplied) is not decided yet.
+separate projects under the GPLv2. Kyro uses their released binaries
+unmodified. They are not in this repository and not in the release tarball;
+`kyro bootfiles fetch` downloads fixed versions and refuses files whose
+SHA-256 checksum differs from the one compiled into Kyro. See
+[NOTICE](../NOTICE).
 
-Design decisions are recorded in [docs/adr](adr/README.md). The status of
-each planned item is tracked in [ROADMAP.md](ROADMAP.md). What Kyro will and
-will not protect against is described in
-[security-model.md](security-model.md).
+Kyro contains and downloads no Microsoft software.
 
-## Open questions
+## Listening addresses
 
-- How Kyro reads files out of an ISO without unpacking it. The install share
-  serves a directory for now.
-- UEFI Secure Boot support. ADR 0001 describes the constraints.
-- Which client platforms to support first (UEFI x86-64 is the obvious starting
-  point; legacy BIOS and ARM64 are undecided).
-- Configuration format and where state is stored.
-- Authentication for the web UI.
-- How iPXE and wimboot binaries are obtained and updated.
+| Port | Service | Where |
+| ---- | ------- | ----- |
+| UDP 67, 4011 | proxyDHCP | Boot interface |
+| UDP 69 | TFTP | `address` |
+| TCP 80 | Boot HTTP and callback | `address` |
+| TCP 445 | Install share | `address` |
+| TCP 8080 | Status page | `127.0.0.1` by default |
+
+The boot HTTP server offers only what a booting client needs. The status
+page is a separate listener so that it can stay off the boot network.
