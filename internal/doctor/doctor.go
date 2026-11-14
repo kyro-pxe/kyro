@@ -568,7 +568,7 @@ func Print(w io.Writer, findings []Finding) (warnings, failures int) {
 
 func secureBootNote(cfg config.Config) Finding {
 	if cfg.SecureBoot {
-		return Finding{Level: Info, Title: "Secure Boot", Detail: "Switched on (secure_boot): UEFI clients get the shim signed by Microsoft and the iPXE signed by the iPXE project. This is experimental and was tested in virtual machines only. The client's firmware must trust Microsoft's key for other vendors' boot loaders (\"Microsoft 3rd Party UEFI CA\"), which some machines switch off by default."}
+		return Finding{Level: Info, Title: "Secure Boot", Detail: "Switched on (secure_boot, the default): UEFI clients get the shim signed by Microsoft and the iPXE signed by the iPXE project. Clients with Secure Boot on and off both start them. Tested in virtual machines only. The client's firmware must trust Microsoft's key for other vendors' boot loaders (\"Microsoft 3rd Party UEFI CA\"), which some machines switch off by default; such a machine refuses to boot from Kyro until that is allowed in its firmware setup."}
 	}
-	return Finding{Level: Info, Title: "Secure Boot", Detail: "Switched off (secure_boot): UEFI clients get an unsigned iPXE, which firmware with Secure Boot refuses. Switch Secure Boot off on the clients, or set secure_boot: true (experimental)."}
+	return Finding{Level: Warn, Title: "Secure Boot", Detail: "Switched off (secure_boot: false): UEFI clients get an unsigned iPXE, which firmware with Secure Boot refuses with an error such as \"Access Denied\". Only clients with Secure Boot switched off can boot from Kyro.", Fix: []string{"Remove 'secure_boot: false' from the configuration, unless a client needs the unsigned iPXE."}}
 }

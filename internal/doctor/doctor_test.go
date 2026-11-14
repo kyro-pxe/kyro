@@ -131,7 +131,7 @@ func TestHealthyMachine(t *testing.T) {
 		"kyro image add",
 		"[info] Profiles: None yet.",
 		"[ok  ] Disk space for images: 100 GB free",
-		"[info] Secure Boot: Switched off (secure_boot)",
+		"[info] Secure Boot: Switched on (secure_boot, the default)",
 		"selection, not authentication",
 		"6 GB",
 	)
@@ -361,7 +361,15 @@ func TestDoctorChangesNothing(t *testing.T) {
 
 func TestSecureBootNote(t *testing.T) {
 	cfg := testConfig(t)
-	cfg.SecureBoot = true
+	if !cfg.SecureBoot {
+		t.Fatal("Secure Boot is not on by default")
+	}
 	out, _, _ := report(t, healthy(), cfg)
-	wants(t, out, "[info] Secure Boot: Switched on (secure_boot)", "experimental", "3rd Party UEFI CA")
+	wants(t, out, "[info] Secure Boot: Switched on (secure_boot, the default)", "3rd Party UEFI CA")
+	cfg.SecureBoot = false
+	out, warnings, _ := report(t, healthy(), cfg)
+	wants(t, out, "[WARN] Secure Boot: Switched off (secure_boot: false)", "Access Denied")
+	if warnings == 0 {
+		t.Error("switching Secure Boot off is not a warning")
+	}
 }

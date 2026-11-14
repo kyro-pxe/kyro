@@ -59,11 +59,14 @@ pass "DHCP, proxyDHCP, TFTP, HTTP and SMB are listening"
 
 curl -fsS --max-time 5 http://127.0.0.1:8080/healthz >/dev/null || fail "the status page does not answer"
 curl -fsS --max-time 5 "http://$ADDR/boot.ipxe" | grep -q '^#!ipxe' || fail "no iPXE script over HTTP"
+# Secure Boot is on by default: the shim comes under its own name, and what
+# it will ask for, ipxe.efi, is the signed iPXE.
+(cd /tmp && tftp "$ADDR" -m binary -c get ipxe-shim.efi shim.efi) || fail "TFTP transfer of the shim failed"
 (cd /tmp && tftp "$ADDR" -m binary -c get ipxe.efi got.efi) || fail "TFTP transfer failed"
-want=$(sha256sum /var/lib/kyro/boot/ipxe.efi | cut -d ' ' -f 1)
-got=$(sha256sum /tmp/got.efi | cut -d ' ' -f 1)
-[ "$want" = "$got" ] || fail "ipxe.efi over TFTP differs from the file on disk"
-pass "HTTP, TFTP and the status page answer; ipxe.efi arrives intact over TFTP"
+same() { [ "$(sha256sum "$1" | cut -d ' ' -f 1)" = "$(sha256sum "$2" | cut -d ' ' -f 1)" ]; }
+same /tmp/shim.efi /var/lib/kyro/boot/ipxe-shim.efi || fail "the shim over TFTP differs from the file on disk"
+same /tmp/got.efi /var/lib/kyro/boot/ipxe-signed.efi || fail "ipxe.efi over TFTP is not the signed iPXE"
+pass "HTTP, TFTP and the status page answer; the shim and the signed iPXE arrive intact over TFTP"
 
 # What a booting client does: ask what to boot. It is not armed.
 curl -fsS --max-time 5 "http://$ADDR/boot?mac=52-54-00-aa-bb-01&uuid=&serial=" | grep -q 'exit' || fail "an unknown client was not sent to its disk"

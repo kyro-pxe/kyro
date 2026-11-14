@@ -38,9 +38,10 @@ installed Windows
    answers with an address. Kyro answers next to it with the boot
    information only, and never hands out addresses. Replies are broadcasts
    from an ordinary UDP socket, which is why no raw socket is needed.
-2. **TFTP.** The firmware downloads iPXE (`ipxe.efi` for UEFI). With
-   `secure_boot` switched on it downloads a signed shim first, which then
-   fetches a signed iPXE ([ADR 0005](adr/0005-secure-boot.md)).
+2. **TFTP.** A UEFI client downloads a signed shim (`ipxe-shim.efi`), which
+   then fetches the signed iPXE; both pass Secure Boot
+   ([ADR 0005](adr/0005-secure-boot.md)). With `secure_boot: false` it
+   downloads the unsigned `ipxe.efi` directly.
 3. **iPXE.** iPXE asks again, is recognised by its user class and is given
    an HTTP address. From here on everything is HTTP.
 4. **The decision.** iPXE sends the client's MAC address, SMBIOS UUID and

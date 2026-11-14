@@ -30,7 +30,7 @@ base_url=${KYRO_BASE_URL:-$BASE_URL_DEFAULT}
 interface=${KYRO_INTERFACE:-}
 address=${KYRO_ADDRESS:-}
 dhcp_mode=${KYRO_DHCP_MODE:-proxy}
-secure_boot=${KYRO_SECURE_BOOT:-false}
+secure_boot=${KYRO_SECURE_BOOT:-true}
 bootfiles_from=${KYRO_BOOTFILES_FROM:-}
 action=install
 assume_yes=0
@@ -59,8 +59,10 @@ Configuration (asked for interactively if not given):
   --interface NAME     Network interface that faces the clients.
   --address IPV4       This machine's address on that interface.
   --dhcp-mode MODE     proxy (default) or off.
-  --secure-boot        Hand UEFI clients the signed shim and iPXE, for
-                       clients with Secure Boot switched on. Experimental.
+  --no-secure-boot     Hand UEFI clients the unsigned iPXE. Only clients with
+                       Secure Boot switched off can boot it. Without this
+                       option clients get the signed shim and iPXE, which
+                       work with Secure Boot on and off.
 
 Behaviour:
   -y, --yes            Ask nothing; take the given values and the defaults.
@@ -136,7 +138,8 @@ while [ $# -gt 0 ]; do
 		address=$2
 		shift
 		;;
-	--secure-boot) secure_boot=true ;;
+	--no-secure-boot) secure_boot=false ;;
+	--secure-boot) secure_boot=true ;; # the default; accepted for scripts that name it
 	--dhcp-mode)
 		need_value "$@"
 		dhcp_mode=$2
@@ -455,7 +458,7 @@ data_dir: $DATA_DIR
 dhcp:
   mode: $dhcp_mode
 
-# UEFI Secure Boot, experimental. See config.example.yaml.
+# UEFI Secure Boot: signed shim and iPXE. See config.example.yaml.
 secure_boot: $secure_boot
 
 smb:

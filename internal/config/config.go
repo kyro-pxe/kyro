@@ -55,6 +55,7 @@ type Config struct {
 	// SecureBoot makes Kyro hand UEFI clients the shim that Microsoft
 	// signed and the iPXE that the iPXE project signed, in place of the
 	// unsigned iPXE. Clients with Secure Boot switched off start them too.
+	// It is on unless the configuration switches it off.
 	SecureBoot bool `yaml:"secure_boot"`
 
 	// UnknownClients says what a client gets that is not armed: "local"
@@ -139,6 +140,7 @@ func Default() Config {
 		HTTP:           HTTP{Port: 80},
 		SMB:            SMB{Mode: "embedded", Port: 445, Username: "kyro"},
 		Status:         Status{Listen: "127.0.0.1:8080"},
+		SecureBoot:     true,
 		UnknownClients: "local",
 		InstallTimeout: Duration(3 * time.Hour),
 	}

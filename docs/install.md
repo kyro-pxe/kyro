@@ -16,8 +16,8 @@ other people use.
 - Free ports on that address: UDP 67, 69 and 4011, TCP 80 and 445.
 - Disk space for your Windows ISOs (about 7 GB each), unless you link them
   with `kyro image add --link`.
-- Clients: x86-64, UEFI. Secure Boot switched off, or Kyro installed with
-  `--secure-boot`. See [Limitations](#limitations).
+- Clients: x86-64, UEFI, with Secure Boot on or off. See
+  [Limitations](#limitations).
 
 ## Install
 
@@ -173,15 +173,17 @@ profile and client record. It asks first; without a terminal it needs
 
 ## Limitations
 
-- **Secure Boot is experimental and off by default.** Without it, UEFI
-  clients get an unsigned iPXE and must have Secure Boot switched off. With
-  `install.sh --secure-boot`, or `secure_boot: true` in the configuration,
-  they get the shim signed by Microsoft and the iPXE signed by the iPXE
-  project, both unmodified from the iPXE release. That was tested in
-  virtual machines only. The client's firmware must trust Microsoft's key
-  for other vendors' boot loaders ("Microsoft 3rd Party UEFI CA"), which
-  some machines switch off by default.
-  [ADR 0005](adr/0005-secure-boot.md) has the details.
+- **Secure Boot was tested in virtual machines only.** By default UEFI
+  clients get the shim signed by Microsoft and the iPXE signed by the iPXE
+  project, both unmodified from the iPXE release. They start with Secure
+  Boot on and off. The client's firmware must trust Microsoft's key for
+  other vendors' boot loaders ("Microsoft 3rd Party UEFI CA"), which some
+  machines switch off by default; such a machine refuses to boot from Kyro
+  until that is allowed in its firmware setup. `install.sh
+  --no-secure-boot`, or `secure_boot: false` in the configuration, hands
+  out the unsigned iPXE instead, which only clients with Secure Boot
+  switched off can boot. [ADR 0005](adr/0005-secure-boot.md) has the
+  details.
 - BIOS clients are untested. The BIOS boot file is served, nothing more is
   known.
 - `dhcp.mode: full` is not implemented. Kyro needs another DHCP server on

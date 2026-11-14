@@ -14,9 +14,9 @@
 
 > [!WARNING]
 > **Status: alpha.** Kyro has installed Windows 11 end to end in one
-> environment only: virtual machines (QEMU, UEFI, with Secure Boot off and
-> on) with the Windows 11 Enterprise evaluation ISO. It has not been tried on physical
-> hardware. Kyro wipes the disks of the machines you arm, and anyone on the
+> environment only: virtual machines (QEMU, UEFI, with Secure Boot on and
+> off) with the Windows 11 Enterprise evaluation ISO. It has not been tried
+> on physical hardware. Kyro wipes the disks of the machines you arm, and anyone on the
 > boot network can read what it serves. Read
 > [Known limitations](#known-limitations) and
 > [docs/security-model.md](docs/security-model.md) first.
@@ -49,9 +49,9 @@ unmodified from their projects at setup time; see [NOTICE](NOTICE).
 
 You need a Linux server (x86-64, systemd) on the same network as the
 machines, a DHCP server on that network, and a Windows 11 ISO. The client
-needs UEFI and network boot first in its boot order. Either switch Secure
-Boot off on the client, or install Kyro with `--secure-boot`
-([experimental](docs/adr/0005-secure-boot.md)).
+needs UEFI and network boot first in its boot order. Secure Boot can stay
+switched on: Kyro hands out the boot loaders that Microsoft and the iPXE
+project signed ([ADR 0005](docs/adr/0005-secure-boot.md)).
 
 **1. Install.** The installer verifies the release's checksum, creates a
 `kyro` user, writes `/etc/kyro/config.yaml` and starts the service.
@@ -110,7 +110,7 @@ journalctl -u kyro -f
 
 The state goes from `armed` to `installing` when the client fetches the
 installer, and to `provisioned` when the installed system calls back. In
-Kyro's own test run that took 25 minutes on a virtual machine. A client
+Kyro's own test runs that took 24 to 36 minutes on a virtual machine. A client
 that does not call back within `install_timeout` (3 hours) becomes `failed`.
 
 For `provisioned` to appear, the answer file has to make the installed
@@ -126,13 +126,16 @@ again: arm it again.
 ## Known limitations
 
 - **Tested in virtual machines only.** One ISO (Windows 11 Enterprise
-  evaluation), QEMU with OVMF, one full run. No physical hardware, no other
+  evaluation), QEMU with OVMF, six full runs. No physical hardware, no other
   editions or languages.
-- **Secure Boot is experimental** and off by default (`secure_boot: true`,
-  or `install.sh --secure-boot`). It uses the shim and the iPXE that the
-  iPXE project publishes signed, and was tested in virtual machines only.
-  Machines that do not trust Microsoft's key for other vendors' boot
-  loaders refuse it. See [ADR 0005](docs/adr/0005-secure-boot.md).
+- **Secure Boot works in virtual machines; real hardware is untried.** By
+  default Kyro hands UEFI clients the shim and the iPXE that the iPXE
+  project publishes signed. A machine that does not trust Microsoft's key
+  for other vendors' boot loaders ("Microsoft 3rd Party UEFI CA", off by
+  default on some business laptops) refuses them until that is allowed in
+  its firmware setup. `secure_boot: false` goes back to the unsigned iPXE,
+  which only boots with Secure Boot switched off. See
+  [ADR 0005](docs/adr/0005-secure-boot.md).
 - **UEFI x86-64 clients only.** BIOS clients are untested. No ARM.
 - **Linux server only**, x86-64.
 - **An existing DHCP server is required.** `dhcp.mode: full` is not
@@ -149,8 +152,8 @@ again: arm it again.
   the token on the network can report "done".
 - **No web interface.** The status page only shows state.
 - **Release checksums only, no signatures.**
-- **The profile bundle format is provisional** (`"bundle_version": 0`) and
-  will change.
+- **The profile bundle format has version 0** and may still change between
+  releases. [ADR 0002](docs/adr/0002-profiles.md) is its specification.
 - **Docker:** the Compose example was not tested with a booting client.
 - The embedded SMB server uses a library in which fuzzing found defects;
   see [ADR 0003](docs/adr/0003-smb-server-library.md).
