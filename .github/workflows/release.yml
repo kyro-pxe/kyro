@@ -2,10 +2,20 @@ name: Release
 
 # Builds the release files for a tag and attaches them to a DRAFT release.
 # Nothing is published until a maintainer publishes the draft by hand.
+#
+# Started by hand (Actions > Release > Run workflow) it is a dry run: it
+# builds the files and keeps them as a workflow artifact, and creates no
+# release.
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to stamp into the dry-run build, e.g. v0.1.0-alpha"
+        required: true
+        default: v0.0.0-dryrun
 
 permissions:
   contents: write
@@ -31,12 +41,23 @@ jobs:
           go test ./...
 
       - name: Build
-        run: ./scripts/release/build.sh "$GITHUB_REF_NAME"
+        env:
+          VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+        run: ./scripts/release/build.sh "$VERSION"
 
       - name: Check the checksums
         run: cd dist && sha256sum --check SHA256SUMS
 
+      - name: Keep the files of a dry run
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-dry-run
+          path: dist/
+          if-no-files-found: error
+
       - name: Create the draft release
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

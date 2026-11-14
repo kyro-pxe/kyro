@@ -168,6 +168,7 @@ again: arm it again.
 | [docs/security-model.md](docs/security-model.md) | What Kyro does and does not protect against |
 | [docs/adr](docs/adr/README.md) | Design decisions, including the profile format |
 | [docs/ALPHA.md](docs/ALPHA.md) | Plan and acceptance tests of this alpha |
+| [docs/releasing.md](docs/releasing.md) | How a release is built and published |
 | [deploy/docker](deploy/docker/README.md) | Docker Compose example |
 
 ## Building
