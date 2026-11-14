@@ -322,7 +322,7 @@ windows_since() {
 }
 
 cmd_run() {
-	local results started t0 during lines mac1
+	local results started t0 during lines mac1 recorder
 	started=$(date +%s)
 	results="$WORK/results/$(date +%Y%m%d-%H%M%S)"
 	# The trap runs after this function has returned, when its local
@@ -387,6 +387,7 @@ cmd_run() {
 	cmd_vm_start 0 fresh
 	if [ "$RECORD" = 1 ]; then
 		record 0 "$results/frames" &
+		recorder=$!
 	fi
 	wait_for 300 installing "machine 0 is given the installer" state 0
 	say "installation started; waiting up to $((INSTALL_TIMEOUT / 60)) minutes for the callback"
@@ -424,7 +425,8 @@ cmd_run() {
 	cmd_vm_stop 0 || true
 	rm -f -- "${WORK:?}/vm0/disk.qcow2" "${WORK:?}/vm1/disk.qcow2"
 	if [ "$RECORD" = 1 ]; then
-		wait || true
+		# Only the recorder: Kyro is a background job of this shell too.
+		wait "$recorder" || true
 		cmd_video "$results/frames" "$results/install.mp4" && say "video: $results/install.mp4"
 	fi
 	[ "$SECURE_BOOT" = 1 ] && say "This run had UEFI Secure Boot enforced on both machines."
