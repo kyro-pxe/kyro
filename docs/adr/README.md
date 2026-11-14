@@ -13,3 +13,4 @@ Status values: **Proposed** (under discussion), **Accepted**, **Superseded**
 | 0002 | [Profiles](0002-profiles.md)                                      | Accepted |
 | 0003 | [SMB server library](0003-smb-server-library.md)                  | Accepted |
 | 0004 | [Client state and where it is stored](0004-client-state.md)       | Accepted |
+| 0005 | [UEFI Secure Boot](0005-secure-boot.md)                           | Accepted |

@@ -73,6 +73,11 @@ projects are included in this repository.
   * wimboot  https://github.com/ipxe/wimboot
              Licensed under the GNU General Public License, version 2.
 
+  * shim     https://github.com/ipxe/shim, the iPXE project's build of
+             https://github.com/rhboot/shim. It is part of the iPXE release
+             archive and is used only when Secure Boot is switched on in
+             Kyro's configuration. See the shim project for its license.
+
 Each of these projects remains under its own license and copyright. See the
 respective upstream project for details.
 

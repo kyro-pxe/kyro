@@ -21,6 +21,12 @@ dhcp:
 tftp:
   enabled: true
 
+# UEFI Secure Boot. EXPERIMENTAL, tested in virtual machines only.
+# false: UEFI clients get an unsigned iPXE. Secure Boot must be off on them.
+# true:  UEFI clients get the shim signed by Microsoft and the iPXE signed by
+#        the iPXE project. Clients with Secure Boot off start them as well.
+secure_boot: false
+
 http:
   port: 80
 

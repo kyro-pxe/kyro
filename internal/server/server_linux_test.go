@@ -346,3 +346,47 @@ func TestRunFails(t *testing.T) {
 		}
 	})
 }
+
+// With Secure Boot switched on, a UEFI client is given the shim, and the
+// shim's request for "ipxe.efi" is answered with the signed iPXE. Without
+// it, nothing of the Secure Boot chain is handed out.
+func TestBootFileNames(t *testing.T) {
+	loaded := map[string][]byte{
+		"ipxe.efi":               []byte("unsigned"),
+		"undionly.kpxe":          []byte("bios"),
+		"wimboot":                []byte("wimboot"),
+		bootfiles.ShimName:       []byte("shim"),
+		bootfiles.SignedIPXEName: []byte("signed"),
+	}
+	for _, tc := range []struct {
+		secure bool
+		name   string
+		want   string // empty: not found
+	}{
+		{false, "ipxe.efi", "unsigned"},
+		{false, "undionly.kpxe", "bios"},
+		{false, bootfiles.ShimName, ""},
+		{false, bootfiles.SignedIPXEName, ""},
+		{false, "wimboot", ""},
+		{true, bootfiles.ShimName, "shim"},
+		{true, "ipxe.efi", "signed"},
+		{true, "/ipxe.efi", "signed"},
+		{true, `\ipxe.efi`, "signed"},
+		{true, bootfiles.SignedIPXEName, ""},
+		{true, "undionly.kpxe", "bios"},
+		{true, "wimboot", ""},
+		{true, "revocations.efi", ""},
+		{true, "../ipxe.efi", ""},
+	} {
+		got, ok := bootFile(loaded, tc.secure, tc.name)
+		if string(got) != tc.want || ok != (tc.want != "") {
+			t.Errorf("secure=%v %q: got %q, %v; want %q", tc.secure, tc.name, got, ok, tc.want)
+		}
+	}
+	if got := uefiBootFile(true); got != bootfiles.ShimName {
+		t.Errorf("boot file with Secure Boot: %q", got)
+	}
+	if got := uefiBootFile(false); got != "ipxe.efi" {
+		t.Errorf("boot file without Secure Boot: %q", got)
+	}
+}

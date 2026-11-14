@@ -89,7 +89,24 @@ var (
 		{Name: "wimboot", From: WimbootRelease, SHA256: WimbootRelease.SHA256},
 		{Name: "ipxe.efi", From: IPXERelease, Member: "ipxeboot/x86_64/ipxe.efi", SHA256: "868aa34057ff416ebf2fdfb5781de035e2c540477c04039198a9f8a9c6130034"},
 		{Name: "undionly.kpxe", From: IPXERelease, Member: "ipxeboot/x86_64/undionly.kpxe", SHA256: "4186562d21ff54e970d905751c9f36d628e73a51a94afe4a6a42f925b0df448c"},
+		// For UEFI Secure Boot. The shim is signed by Microsoft; it starts
+		// the iPXE next to it, which the iPXE project signed with a key
+		// that this shim trusts. Both are part of the iPXE release and are
+		// used as they are. wimboot above is signed by Microsoft as well.
+		{Name: ShimName, From: IPXERelease, Member: "ipxeboot/x86_64-sb/shimx64.efi", SHA256: "83ad71c7d4f2cf328b75b653d09bf3bea5f29bee2e67ca058f37d83c07133885"},
+		{Name: SignedIPXEName, From: IPXERelease, Member: "ipxeboot/x86_64-sb/ipxe.efi", SHA256: "6558e37887516b246d6a97122e8d18bedfe4197b7ba7f67bf1bf102a16678d33"},
 	}
+)
+
+// The names of the Secure Boot files in the boot directory.
+//
+// A shim finds the program it starts by its own name: "ipxe-shim.efi" asks
+// the server it came from for "ipxe.efi". Kyro therefore keeps the signed
+// iPXE under a name of its own and answers a request for "ipxe.efi" with it
+// when Secure Boot is switched on in the configuration.
+const (
+	ShimName       = "ipxe-shim.efi"
+	SignedIPXEName = "ipxe-signed.efi"
 )
 
 // Versions describes the pinned releases in words.

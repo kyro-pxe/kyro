@@ -30,6 +30,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"strings"
 	"sync"
 	"time"
 
@@ -231,13 +232,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		t := &tftp.Server{
 			Addr: netip.AddrPortFrom(addr, 69),
 			Lookup: func(name string) ([]byte, bool) {
-				// wimboot goes over HTTP; only the iPXE binaries are for
-				// firmware.
-				if name == "wimboot" {
-					return nil, false
-				}
-				data, ok := loaded[name]
-				return data, ok
+				return bootFile(loaded, cfg.SecureBoot, name)
 			},
 			Log: log,
 		}
@@ -254,7 +249,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 				Addr: addr,
 				Files: dhcp.BootFiles{
 					BIOS:   "undionly.kpxe",
-					UEFI64: "ipxe.efi",
+					UEFI64: uefiBootFile(cfg.SecureBoot),
 					IPXE:   cfg.HTTPBase() + "/boot.ipxe",
 				},
 				Log: log,
@@ -294,4 +289,35 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	cancel()
 	wg.Wait()
 	return first
+}
+
+// uefiBootFile is the file a UEFI client is told to load first.
+func uefiBootFile(secureBoot bool) string {
+	if secureBoot {
+		return bootfiles.ShimName
+	}
+	return "ipxe.efi"
+}
+
+// bootFile returns what a client gets over TFTP under a name.
+//
+// With Secure Boot switched on, the shim asks for "ipxe.efi" and must get
+// the signed iPXE; the unsigned one would be refused by the shim. The
+// signed iPXE is not handed out under its own name, so that there is one
+// way to get each file.
+func bootFile(loaded map[string][]byte, secureBoot bool, name string) ([]byte, bool) {
+	// Firmware and shims differ in how they write a path.
+	name = strings.TrimLeft(strings.ReplaceAll(name, "\\", "/"), "/")
+	switch {
+	case name == "wimboot" || name == bootfiles.SignedIPXEName:
+		// wimboot goes over HTTP; only the iPXE binaries are for firmware.
+		return nil, false
+	case secureBoot && name == "ipxe.efi":
+		data, ok := loaded[bootfiles.SignedIPXEName]
+		return data, ok
+	case !secureBoot && name == bootfiles.ShimName:
+		return nil, false
+	}
+	data, ok := loaded[name]
+	return data, ok
 }

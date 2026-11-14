@@ -52,6 +52,11 @@ type Config struct {
 	SMB    SMB    `yaml:"smb"`
 	Status Status `yaml:"status"`
 
+	// SecureBoot makes Kyro hand UEFI clients the shim that Microsoft
+	// signed and the iPXE that the iPXE project signed, in place of the
+	// unsigned iPXE. Clients with Secure Boot switched off start them too.
+	SecureBoot bool `yaml:"secure_boot"`
+
 	// UnknownClients says what a client gets that is not armed: "local"
 	// sends it to its own disk at once, "menu" shows a menu first that can
 	// do nothing but that and show the client's identifiers.

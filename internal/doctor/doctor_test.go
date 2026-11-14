@@ -131,7 +131,7 @@ func TestHealthyMachine(t *testing.T) {
 		"kyro image add",
 		"[info] Profiles: None yet.",
 		"[ok  ] Disk space for images: 100 GB free",
-		"[info] Secure Boot: Not supported.",
+		"[info] Secure Boot: Switched off (secure_boot)",
 		"selection, not authentication",
 		"6 GB",
 	)
@@ -357,4 +357,11 @@ func TestDoctorChangesNothing(t *testing.T) {
 	if len(ran) == 0 {
 		t.Error("no commands were run")
 	}
+}
+
+func TestSecureBootNote(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.SecureBoot = true
+	out, _, _ := report(t, healthy(), cfg)
+	wants(t, out, "[info] Secure Boot: Switched on (secure_boot)", "experimental", "3rd Party UEFI CA")
 }

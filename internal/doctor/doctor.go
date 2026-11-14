@@ -196,7 +196,7 @@ func Check(sys System, cfgPath string, cfg config.Config, cfgErr error) []Findin
 			f.Fix = []string{"Run install.sh, or write the file by hand; the README has an example."}
 		}
 		add(f)
-		add(notes()...)
+		add(notes(cfg)...)
 		return out
 	}
 	add(Finding{Level: OK, Title: "Configuration", Detail: cfgPath + " is valid."})
@@ -206,7 +206,7 @@ func Check(sys System, cfgPath string, cfg config.Config, cfgErr error) []Findin
 	add(checkFirewall(sys, cfg)...)
 	add(checkBootFiles(cfg))
 	add(checkData(sys, cfg)...)
-	add(notes()...)
+	add(notes(cfg)...)
 	return out
 }
 
@@ -536,10 +536,10 @@ func checkData(sys System, cfg config.Config) []Finding {
 
 // notes are the things that are true of every installation and that an
 // administrator should have read once.
-func notes() []Finding {
+func notes(cfg config.Config) []Finding {
 	return []Finding{
 		{Level: Info, Title: "Memory of clients", Detail: "Windows PE runs from RAM: the client loads boot.wim (about 600 MB for Windows 11) into memory before anything else. Windows 11 itself asks for 4 GB. Kyro's own test installs with 6 GB; less was not tried."},
-		{Level: Info, Title: "Secure Boot", Detail: "Not supported. Switch it off on clients for the installation."},
+		secureBootNote(cfg),
 		{Level: Info, Title: "Who gets installed", Detail: "A client is selected by the MAC address, UUID or serial number that it reports. That is selection, not authentication: any machine on the boot network can claim to be an armed client, and then receives the installer and the answer file. The same network can read the install share. Keep the boot network isolated."},
 	}
 }
@@ -564,4 +564,11 @@ func Print(w io.Writer, findings []Finding) (warnings, failures int) {
 		}
 	}
 	return warnings, failures
+}
+
+func secureBootNote(cfg config.Config) Finding {
+	if cfg.SecureBoot {
+		return Finding{Level: Info, Title: "Secure Boot", Detail: "Switched on (secure_boot): UEFI clients get the shim signed by Microsoft and the iPXE signed by the iPXE project. This is experimental and was tested in virtual machines only. The client's firmware must trust Microsoft's key for other vendors' boot loaders (\"Microsoft 3rd Party UEFI CA\"), which some machines switch off by default."}
+	}
+	return Finding{Level: Info, Title: "Secure Boot", Detail: "Switched off (secure_boot): UEFI clients get an unsigned iPXE, which firmware with Secure Boot refuses. Switch Secure Boot off on the clients, or set secure_boot: true (experimental)."}
 }
