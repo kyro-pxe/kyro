@@ -24,9 +24,8 @@ It is not part of `make test` and does not run in the default CI.
   with less), 6 GB of RAM for the virtual machine, and Internet access once
   to download iPXE and wimboot, unless `KYRO_E2E_BOOTFILES` points to them.
 
-The one recorded run on the development machine (4 virtual CPUs, KVM) took
-27 minutes, 25 of them for the installation. Expect something between 20
-and 60 minutes.
+Three runs on the development machine (4 virtual CPUs, KVM) took 27, 40 and
+32 minutes. Expect something between 20 and 60 minutes.
 
 ## What it does
 
@@ -61,7 +60,18 @@ non-zero exit status.
 | `KYRO_E2E_TIMEOUT` | `5400` | Seconds to wait for the callback |
 | `KYRO_E2E_RAM` | `6G` | Memory of the virtual machine |
 | `KYRO_E2E_USER` | `nobody` | The user that `kyro serve` runs as |
-| `OVMF_CODE`, `OVMF_VARS` | Debian's paths | The firmware. No Secure Boot keys are enrolled, so Secure Boot is off. |
+| `KYRO_E2E_SECURE_BOOT` | `0` | `1` runs everything with Secure Boot enforced, see below |
+| `KYRO_E2E_RECORD` | `0` | `1` records the screen of the installed machine and writes `install.mp4` into the results. Needs `ffmpeg`. |
+| `OVMF_CODE`, `OVMF_VARS` | Debian's paths | The firmware. By default no Secure Boot keys are enrolled, so Secure Boot is off. |
+
+## Secure Boot
+
+`KYRO_E2E_SECURE_BOOT=1` gives the machines firmware variables with
+Microsoft's keys enrolled and switches `secure_boot` on in Kyro. Before
+anything else the test starts a machine against a Kyro with `secure_boot`
+off: the firmware must refuse the unsigned iPXE, and the machine must never
+reach Kyro. Only then does it go on, and it checks that the machines came
+through the signed shim and the signed iPXE.
 
 ## Results
 

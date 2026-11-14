@@ -38,7 +38,9 @@ installed Windows
    answers with an address. Kyro answers next to it with the boot
    information only, and never hands out addresses. Replies are broadcasts
    from an ordinary UDP socket, which is why no raw socket is needed.
-2. **TFTP.** The firmware downloads iPXE (`ipxe.efi` for UEFI).
+2. **TFTP.** The firmware downloads iPXE (`ipxe.efi` for UEFI). With
+   `secure_boot` switched on it downloads a signed shim first, which then
+   fetches a signed iPXE ([ADR 0005](adr/0005-secure-boot.md)).
 3. **iPXE.** iPXE asks again, is recognised by its user class and is given
    an HTTP address. From here on everything is HTTP.
 4. **The decision.** iPXE sends the client's MAC address, SMBIOS UUID and
@@ -86,7 +88,7 @@ Everything is under `data_dir` (`/var/lib/kyro`):
 | --------- | ------- | ---------- |
 | `images/` | ISOs (or links to them) and one JSON file each | CLI |
 | `profiles/` | One directory per profile: the answer file as imported, and its metadata | CLI |
-| `boot/` | `ipxe.efi`, `undionly.kpxe`, `wimboot` | CLI (`kyro bootfiles fetch`) |
+| `boot/` | `ipxe.efi`, `undionly.kpxe`, `wimboot`, and for Secure Boot `ipxe-shim.efi` and `ipxe-signed.efi` | CLI (`kyro bootfiles fetch`) |
 | `state/` | One JSON file per client | CLI and service, under a file lock |
 
 The CLI works on these files directly and does not talk to the service, so

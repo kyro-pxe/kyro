@@ -16,8 +16,8 @@ other people use.
 - Free ports on that address: UDP 67, 69 and 4011, TCP 80 and 445.
 - Disk space for your Windows ISOs (about 7 GB each), unless you link them
   with `kyro image add --link`.
-- Clients: x86-64, UEFI, **Secure Boot switched off**. See
-  [Limitations](#limitations).
+- Clients: x86-64, UEFI. Secure Boot switched off, or Kyro installed with
+  `--secure-boot`. See [Limitations](#limitations).
 
 ## Install
 
@@ -173,11 +173,15 @@ profile and client record. It asks first; without a terminal it needs
 
 ## Limitations
 
-- **Secure Boot is not supported.** Kyro uses the unmodified iPXE and
-  wimboot binaries from their projects' releases. That chain has not been
-  tested with Secure Boot, and Kyro makes no attempt to make it work. Switch
-  Secure Boot off on the client for the installation. Windows 11's own
-  requirement check is a separate matter that your answer file deals with.
+- **Secure Boot is experimental and off by default.** Without it, UEFI
+  clients get an unsigned iPXE and must have Secure Boot switched off. With
+  `install.sh --secure-boot`, or `secure_boot: true` in the configuration,
+  they get the shim signed by Microsoft and the iPXE signed by the iPXE
+  project, both unmodified from the iPXE release. That was tested in
+  virtual machines only. The client's firmware must trust Microsoft's key
+  for other vendors' boot loaders ("Microsoft 3rd Party UEFI CA"), which
+  some machines switch off by default.
+  [ADR 0005](adr/0005-secure-boot.md) has the details.
 - BIOS clients are untested. The BIOS boot file is served, nothing more is
   known.
 - `dhcp.mode: full` is not implemented. Kyro needs another DHCP server on

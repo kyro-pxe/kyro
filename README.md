@@ -14,8 +14,8 @@
 
 > [!WARNING]
 > **Status: alpha.** Kyro has installed Windows 11 end to end in one
-> environment only: virtual machines (QEMU, UEFI, Secure Boot off) with the
-> Windows 11 Enterprise evaluation ISO. It has not been tried on physical
+> environment only: virtual machines (QEMU, UEFI, with Secure Boot off and
+> on) with the Windows 11 Enterprise evaluation ISO. It has not been tried on physical
 > hardware. Kyro wipes the disks of the machines you arm, and anyone on the
 > boot network can read what it serves. Read
 > [Known limitations](#known-limitations) and
@@ -49,8 +49,9 @@ unmodified from their projects at setup time; see [NOTICE](NOTICE).
 
 You need a Linux server (x86-64, systemd) on the same network as the
 machines, a DHCP server on that network, and a Windows 11 ISO. The client
-needs UEFI with **Secure Boot switched off** and network boot first in its
-boot order.
+needs UEFI and network boot first in its boot order. Either switch Secure
+Boot off on the client, or install Kyro with `--secure-boot`
+([experimental](docs/adr/0005-secure-boot.md)).
 
 **1. Install.** The installer verifies the release's checksum, creates a
 `kyro` user, writes `/etc/kyro/config.yaml` and starts the service.
@@ -127,8 +128,11 @@ again: arm it again.
 - **Tested in virtual machines only.** One ISO (Windows 11 Enterprise
   evaluation), QEMU with OVMF, one full run. No physical hardware, no other
   editions or languages.
-- **Secure Boot is not supported.** Switch it off on the client for the
-  installation.
+- **Secure Boot is experimental** and off by default (`secure_boot: true`,
+  or `install.sh --secure-boot`). It uses the shim and the iPXE that the
+  iPXE project publishes signed, and was tested in virtual machines only.
+  Machines that do not trust Microsoft's key for other vendors' boot
+  loaders refuse it. See [ADR 0005](docs/adr/0005-secure-boot.md).
 - **UEFI x86-64 clients only.** BIOS clients are untested. No ARM.
 - **Linux server only**, x86-64.
 - **An existing DHCP server is required.** `dhcp.mode: full` is not

@@ -20,8 +20,20 @@ RAM="${KYRO_E2E_RAM:-6G}"
 # The user that kyro serve runs as. It gets the one capability of the
 # systemd unit and the file permissions that the installer sets up.
 SVC_USER="${KYRO_E2E_USER:-nobody}"
+# 1 runs the whole test with UEFI Secure Boot enforced on the machines and
+# secure_boot switched on in Kyro.
+SECURE_BOOT="${KYRO_E2E_SECURE_BOOT:-0}"
+# 1 records the screen of the installed machine, a frame a second, and
+# makes a video of it. Needs ffmpeg.
+RECORD="${KYRO_E2E_RECORD:-0}"
 OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.secboot.fd}"
-OVMF_VARS="${OVMF_VARS:-/usr/share/OVMF/OVMF_VARS_4M.fd}"
+if [ "$SECURE_BOOT" = 1 ]; then
+	# Variables with Microsoft's keys enrolled: Secure Boot is on.
+	OVMF_VARS="${OVMF_VARS:-/usr/share/OVMF/OVMF_VARS_4M.ms.fd}"
+else
+	# Variables without keys: Secure Boot is off.
+	OVMF_VARS="${OVMF_VARS:-/usr/share/OVMF/OVMF_VARS_4M.fd}"
+fi
 
 NS=kyro-e2e           # Kyro and the virtual machines
 NS_DHCP=kyro-e2e-dhcp # the DHCP server that hands out addresses
@@ -86,6 +98,7 @@ status:
 smb:
   password: e2e-not-a-secret
 install_timeout: 3h
+secure_boot: $([ "$SECURE_BOOT" = 1 ] && echo true || echo false)
 CONF
 
 	# The layout of install.sh: the service reads everything and writes
@@ -221,6 +234,7 @@ cmd_vm_start() { # number [fresh]
 		-serial file:"$run/serial.log" \
 		-display none -vnc unix:"$run/vnc.sock" \
 		-monitor unix:"$run/mon.sock",server,nowait \
+		-chardev socket,id=rec,path="$run/rec.sock",server=on,wait=off -mon chardev=rec,mode=readline \
 		-pidfile "$run/qemu.pid" -daemonize
 	say "machine $vm started ($(vm_mac "$vm"))"
 }
@@ -231,7 +245,31 @@ cmd_vm_stop() { # number
 		mon "$1" quit || true
 	fi
 	sleep 1
-	rm -f -- "${run:?}/mon.sock" "${run:?}/vnc.sock" "${run:?}/swtpm.sock" "${run:?}/qemu.pid"
+	rm -f -- "${run:?}/mon.sock" "${run:?}/rec.sock" "${run:?}/vnc.sock" "${run:?}/swtpm.sock" "${run:?}/qemu.pid"
+}
+
+# record takes a picture of a machine's screen about once a second until
+# the machine is gone. It has a monitor of its own, so that it never gets
+# in the way of the test's commands.
+record() { # number directory
+	local vm=$1 dir=$2 n=0 sock="$WORK/vm$1/rec.sock"
+	mkdir -p "$dir"
+	while [ -S "$sock" ]; do
+		echo "screendump $dir/current.ppm" | socat - "UNIX-CONNECT:$sock" >/dev/null 2>&1 || break
+		sleep 0.8
+		n=$((n + 1))
+		ffmpeg -loglevel error -y -i "$dir/current.ppm" -q:v 3 "$dir/$(printf 'frame-%06d.jpg' "$n")" 2>/dev/null || true
+	done
+	rm -f -- "${dir:?}/current.ppm"
+}
+
+# cmd_video turns recorded frames into a video, 30 frames a second: half
+# a minute of installation per second of video.
+cmd_video() { # frames-directory output.mp4
+	need ffmpeg
+	ffmpeg -loglevel error -y -framerate 30 -pattern_type glob -i "$1/frame-*.jpg" \
+		-vf "scale=1280:800:force_original_aspect_ratio=decrease,pad=1280:800:(ow-iw)/2:(oh-ih)/2,format=yuv420p" \
+		-c:v libx264 -crf 24 -movflags +faststart "$2"
 }
 
 cmd_shot() { # number file.ppm
@@ -294,6 +332,25 @@ cmd_run() {
 	cmd_up
 	mkdir -p "$results"
 
+	if [ "$SECURE_BOOT" = 1 ]; then
+		say "--- S. Secure Boot is enforced on the machines"
+		# The counter-check: with secure_boot switched off, Kyro hands out
+		# the unsigned iPXE, and firmware that enforces Secure Boot must
+		# refuse to start it. Otherwise the rest would prove nothing.
+		sed -i 's/^secure_boot: true$/secure_boot: false/' "$KYRO_CONFIG"
+		cmd_kyro_start
+		cmd_vm_start 1 fresh
+		wait_for 120 yes "the firmware downloads the unsigned iPXE" \
+			sh -c "grep -q 'tftp: file sent.*file=ipxe.efi bytes=1148416' '$WORK/log/kyro.log' && echo yes"
+		sleep 30
+		expect "the firmware refused the unsigned iPXE: it never reached Kyro" "$(state 1)" none
+		cmd_shot 1 "$results/machine1-unsigned-refused.ppm" || true
+		cmd_vm_stop 1
+		cp "$WORK/log/kyro.log" "$results/kyro-unsigned.log"
+		sed -i 's/^secure_boot: false$/secure_boot: true/' "$KYRO_CONFIG"
+		cmd_kyro_start
+	fi
+
 	say "--- 0. Kyro runs without root rights"
 	local pid
 	pid=$(cat "$WORK/run/kyro.pid")
@@ -307,6 +364,10 @@ cmd_run() {
 	wait_for 180 unknown "machine 1 asks Kyro what to boot" state 1
 	sleep 20
 	mac1=$(vm_mac 1 | tr -d : | tr a-f A-F)
+	if [ "$SECURE_BOOT" = 1 ]; then
+		expect "it came through the signed shim" "$([ "$(count 'tftp: file sent.*file=ipxe-shim.efi')" -ge 1 ] && echo yes)" yes
+		expect "and the signed iPXE" "$([ "$(count 'tftp: file sent.*file=ipxe.efi bytes=397160')" -ge 1 ] && echo yes)" yes
+	fi
 	expect "the unarmed machine was sent to its disk" "$([ "$(count "boot: local disk.*mac=$mac1")" -ge 1 ] && echo yes)" yes
 	expect "nothing was handed out to it" "$(count 'installation started')" 0
 	expect "its disk is still empty" "$([ "$(stat -c %s "$WORK/vm1/disk.qcow2")" -lt 2000000 ] && echo yes)" yes
@@ -324,6 +385,9 @@ cmd_run() {
 	say "--- 3. the armed machine installs Windows by itself"
 	t0=$(date +%s)
 	cmd_vm_start 0 fresh
+	if [ "$RECORD" = 1 ]; then
+		record 0 "$results/frames" &
+	fi
 	wait_for 300 installing "machine 0 is given the installer" state 0
 	say "installation started; waiting up to $((INSTALL_TIMEOUT / 60)) minutes for the callback"
 	wait_for "$INSTALL_TIMEOUT" provisioned "the installed system reports back" state 0
@@ -333,6 +397,11 @@ cmd_run() {
 	during=$(boots 0)
 	expect "Setup's restarts went through the network and were sent to the disk ($during network boots)" \
 		"$([ "$during" -ge 2 ] && echo yes)" yes
+
+	if [ "$RECORD" = 1 ]; then
+		# Let the recording see the desktop before the machine is reset.
+		sleep 45
+	fi
 
 	say "--- 4. another network boot does not reinstall"
 	lines=$(wc -l <"$WORK/log/dnsmasq.log")
@@ -347,10 +416,18 @@ cmd_run() {
 	say "PASS: Windows started from the disk"
 
 	cmd_shot 0 "$results/machine0-after-reset.ppm" || true
+	if [ "$RECORD" = 1 ]; then
+		sleep 30 # the logon screen after the reset
+	fi
 	# The disk of a passed run explains nothing and takes about 15 GB.
 	# After a failure it stays, to be looked at.
 	cmd_vm_stop 0 || true
 	rm -f -- "${WORK:?}/vm0/disk.qcow2" "${WORK:?}/vm1/disk.qcow2"
+	if [ "$RECORD" = 1 ]; then
+		wait || true
+		cmd_video "$results/frames" "$results/install.mp4" && say "video: $results/install.mp4"
+	fi
+	[ "$SECURE_BOOT" = 1 ] && say "This run had UEFI Secure Boot enforced on both machines."
 	say "ALL CHECKS PASSED in $((($(date +%s) - started) / 60)) minutes. Evidence is in $results"
 }
 
@@ -375,6 +452,7 @@ kyro-start) cmd_kyro_start ;;
 vm-start) cmd_vm_start "$@" ;;
 vm-stop) cmd_vm_stop "$@" ;;
 shot) cmd_shot "$@" ;;
+video) cmd_video "$@" ;;
 state) state "$@" ;;
 *) die "usage: $0 [run|up|down|check|kyro-start|vm-start <n> [fresh]|vm-stop <n>|shot <n> <file>|state <n>]" ;;
 esac

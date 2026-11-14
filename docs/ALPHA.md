@@ -10,6 +10,8 @@ What actually works is in [ROADMAP.md](ROADMAP.md), nowhere else.
 ## In scope
 
 - Linux server, x86-64. UEFI clients with Secure Boot switched off.
+  Secure Boot was added later as an experimental option
+  ([ADR 0005](adr/0005-secure-boot.md)).
 - The boot chain: proxyDHCP, TFTP, HTTP, iPXE, wimboot, Windows PE, and the
   SMB install share of [ADR 0001](adr/0001-windows-install-source.md).
 - Images are ISOs, read in place. Profiles are answer files per
@@ -26,8 +28,7 @@ What actually works is in [ROADMAP.md](ROADMAP.md), nowhere else.
 
 ## Out of scope
 
-- Secure Boot. Upstream iPXE and wimboot binaries are used unmodified, and
-  the signed chain has not been tested. Documented as unsupported.
+- Secure Boot was out of scope when this plan was written. See above.
 - Windows and macOS as server platforms. External Samba (`smb.mode:
   external`).
 - A web UI that changes anything. A generator for answer files.
@@ -89,9 +90,9 @@ Filled in as the acceptance tests were run. Nothing here is estimated.
 
 | No. | Result |
 | --- | ------ |
-| A1 | Passed on 2026-11-13: `provisioned` 25 minutes after the machine was started; the whole test took 27 minutes. One run. |
-| A2 | Passed in the same run: three network boots during the installation and one after a reset were sent to the disk; the installer was handed out once; Windows came up from the disk. |
-| A3 | Passed in the same run: the second machine was sent to its disk, nothing was handed out, its disk stayed empty. |
+| A1 | Passed three times. 2026-11-13: `provisioned` after 25 minutes, the whole test took 27. 2026-11-14, with Kyro unprivileged: after 36 minutes, 40 in all, while other work ran on the machine. 2026-11-14, with Secure Boot enforced: 32 minutes in all. |
+| A2 | Passed in each of these runs: three network boots during the installation and one after a reset were sent to the disk; the installer was handed out once; Windows came up from the disk. |
+| A3 | Passed in each of these runs: the second machine was sent to its disk, nothing was handed out, its disk stayed empty. |
 | A4 | Passed: unit tests, and in the same run `kyro arm` without `--confirm-wipe` was refused and left no record. |
 | A5 | Passed on 2026-11-14: `make test-installer` on Debian 13, Ubuntu 24.04 and Fedora 43 containers, and under systemd in a Debian 13 container. |
 | A6 | `shellcheck` is clean locally and is a step of the CI workflow. The workflow itself has not run with these changes, because nothing was pushed. |
