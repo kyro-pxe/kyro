@@ -17,6 +17,9 @@ ISO="${KYRO_E2E_ISO:-}"
 BOOTFILES="${KYRO_E2E_BOOTFILES:-}"
 INSTALL_TIMEOUT="${KYRO_E2E_TIMEOUT:-5400}" # seconds for the installation
 RAM="${KYRO_E2E_RAM:-6G}"
+# The user that kyro serve runs as. It gets the one capability of the
+# systemd unit and the file permissions that the installer sets up.
+SVC_USER="${KYRO_E2E_USER:-nobody}"
 OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.secboot.fd}"
 OVMF_VARS="${OVMF_VARS:-/usr/share/OVMF/OVMF_VARS_4M.fd}"
 
@@ -52,7 +55,7 @@ need() {
 
 cmd_check() {
 	[ "$(id -u)" = 0 ] || die "run as root (network namespaces, KVM)"
-	need ip qemu-system-x86_64 qemu-img swtpm dnsmasq socat curl go
+	need ip qemu-system-x86_64 qemu-img swtpm dnsmasq socat curl go setpriv
 	[ -e /dev/kvm ] || die "/dev/kvm is missing; the test needs KVM"
 	if [ ! -f "$OVMF_CODE" ] || [ ! -f "$OVMF_VARS" ]; then
 		die "OVMF not found at $OVMF_CODE (set OVMF_CODE and OVMF_VARS)"
@@ -85,6 +88,17 @@ smb:
 install_timeout: 3h
 CONF
 
+	# The layout of install.sh: the service reads everything and writes
+	# only the client state. The CLI below runs as root.
+	local group dir
+	id "$SVC_USER" >/dev/null 2>&1 || die "there is no user $SVC_USER (set KYRO_E2E_USER)"
+	group=$(id -gn "$SVC_USER")
+	mkdir -p "$WORK"/data/{images,profiles,boot,state}
+	for dir in "$WORK/data" "$WORK"/data/{images,profiles,boot}; do
+		chown -R "root:$group" "$dir"
+		chmod 0750 "$dir"
+	done
+
 	say "fetching iPXE and wimboot"
 	if [ -n "$BOOTFILES" ]; then
 		"$KYRO" bootfiles fetch --from "$BOOTFILES" >"$WORK/log/bootfiles.log"
@@ -100,6 +114,9 @@ CONF
 	"$KYRO" profile import --example --replace >"$WORK/log/profile-import.log"
 	# Start from a clean slate: no client is known.
 	rm -rf "${WORK:?}/data/state"
+	mkdir "$WORK/data/state"
+	chown "$SVC_USER:$group" "$WORK/data/state"
+	chmod 0750 "$WORK/data/state"
 
 	# The network: one bridge that Kyro and the machines share, and a
 	# second namespace for the DHCP server, as on a real network where
@@ -140,7 +157,13 @@ CONF
 cmd_kyro_start() {
 	[ -f "$WORK/run/kyro.pid" ] && kill "$(cat "$WORK/run/kyro.pid")" 2>/dev/null && sleep 1
 	say "starting kyro serve"
-	nsx "$KYRO" serve >"$WORK/log/kyro.log" 2>&1 &
+	# As the systemd unit does it: not root, CAP_NET_BIND_SERVICE and no
+	# other capability, no way to gain one.
+	# "ip netns exec" replaces itself with the program, so that $! is Kyro.
+	ip netns exec "$NS" setpriv --reuid "$SVC_USER" --regid "$(id -gn "$SVC_USER")" --clear-groups \
+		--inh-caps +net_bind_service --ambient-caps +net_bind_service \
+		--bounding-set -all,+net_bind_service --no-new-privs \
+		"$KYRO" serve >"$WORK/log/kyro.log" 2>&1 &
 	echo $! >"$WORK/run/kyro.pid"
 	local tries=0
 	while [ "$tries" -lt 50 ]; do
@@ -270,6 +293,14 @@ cmd_run() {
 	trap "collect '$results'; cmd_down" EXIT
 	cmd_up
 	mkdir -p "$results"
+
+	say "--- 0. Kyro runs without root rights"
+	local pid
+	pid=$(cat "$WORK/run/kyro.pid")
+	expect "kyro serve runs as $SVC_USER" "$(awk '$1 == "Uid:" { print $2 }' "/proc/$pid/status")" "$(id -u "$SVC_USER")"
+	expect "its only capability is CAP_NET_BIND_SERVICE" \
+		"$(awk '$1 == "CapEff:" || $1 == "CapPrm:" || $1 == "CapBnd:" { printf "%s ", $2 }' "/proc/$pid/status")" \
+		"0000000000000400 0000000000000400 0000000000000400 "
 
 	say "--- 1. a machine that was never armed gets no installer"
 	cmd_vm_start 1 fresh

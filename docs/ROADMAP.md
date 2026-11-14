@@ -11,64 +11,93 @@ Status values:
 - **tested**: working, and covered by automated tests or a documented,
   reproducible test run.
 
-Kyro cannot boot anything yet.
+"Tested" never means more than the notes say. In particular, every
+installation of Windows so far happened in a virtual machine (QEMU with
+OVMF, Secure Boot off) with one ISO, the Windows 11 Enterprise evaluation.
+Nothing was tried on physical hardware.
 
-## Phase 0: Design
+The end-to-end test (`make e2e`, [scripts/e2e](../scripts/e2e/README.md))
+passed once, on 2026-11-13, in 27 minutes. It is referred to as "e2e" below.
 
-| Item | Status | Notes |
-| ---- | ------ | ----- |
-| Decide how Windows Setup gets its install source | tested | [ADR 0001](adr/0001-windows-install-source.md) is accepted: SMB, embedded by default. Confirmed by [spike 0001](spikes/0001-install-source.md) with one Windows 11 ISO in QEMU. |
-| Decide which SMB server implementation to embed | tested | [ADR 0003](adr/0003-smb-server-library.md) is accepted: `jfjallid/go-smb` for the protocol, Kyro's own read-only file system behind it. Confirmed by installing Windows from it in the spike harness. |
-| Decide how profiles (answer files) are stored, validated and served | in progress | [ADR 0002](adr/0002-profiles.md) is proposed. The bundle specification shared with the website is still missing from it. |
-
-## Phase 1: Network boot basics
+## Design
 
 | Item | Status | Notes |
 | ---- | ------ | ----- |
-| proxyDHCP responder | planned | Default mode. |
-| Full DHCP mode | planned | Optional, after proxyDHCP. |
-| TFTP server for iPXE | planned | |
-| HTTP boot server | planned | |
-| BIOS x86-64 clients | planned | |
-| UEFI x86-64 clients, Secure Boot off | planned | |
-| UEFI x86-64 clients, Secure Boot on | planned | Depends on upstream's signed iPXE and wimboot binaries. See ADR 0001. |
-| Obtaining iPXE and wimboot binaries | planned | Fetched or user-supplied, never committed. |
-| YAML config file and flags | planned | |
-| Privileged ports: `setcap` and Docker host networking documented | planned | |
-| Docker image | planned | May ship Samba as a distribution package. |
-| QEMU and OVMF test setup in `scripts/` | planned | |
+| How Windows Setup gets its install source | tested | [ADR 0001](adr/0001-windows-install-source.md): SMB, embedded by default. |
+| Which SMB server to embed | tested | [ADR 0003](adr/0003-smb-server-library.md): `jfjallid/go-smb` with Kyro's own read-only file system. |
+| Profiles | working | [ADR 0002](adr/0002-profiles.md), accepted for the alpha. The bundle format is provisional (`bundle_version` 0); the specification shared with the website is still missing. |
+| Client state | tested | [ADR 0004](adr/0004-client-state.md): one JSON file per client. |
 
-## Phase 2: Images
+## Network boot
 
 | Item | Status | Notes |
 | ---- | ------ | ----- |
-| Validation spike for ADR 0001 against Samba | tested | [Results](spikes/0001-install-source.md). Reproducible with `scripts/spike-install-source`. One ISO, QEMU only. |
-| Validation spike for ADR 0001 against embedded server candidates | tested | Same document. Four libraries tried. This is a test of candidates, not an implementation. |
-| Scan an images directory for ISOs | planned | |
-| Serve boot files from the ISO through wimboot | planned | |
-| Validation of Kyro's own SMB server against Windows PE | tested | [Results](spikes/0001-install-source.md#follow-up-kyros-own-server). Two unattended installs from `kyro share`, one per way of starting Setup. Each ran once, one ISO, QEMU only. |
-| Read-only SMB server (`internal/smbshare`) | tested | Serves directories. SMB 3.1.1, signing required, one account. Unit tests and tests with a real client. See [ADR 0003](adr/0003-smb-server-library.md). |
-| `kyro share`: run the SMB server on its own | tested | Experimental, for testing the share. Serves one directory, for example a mounted ISO. |
-| Install source: embedded read-only SMB server (`smb.mode: embedded`) | in progress | Linux. Default. Starts Setup from RAM by default. The server exists, see the two rows above. `kyro serve` does not start it, there is no configuration, and no client is told where the share is. |
-| Reading files out of an ISO without unpacking it | planned | Windows ISOs are UDF. Until then the share needs a directory. |
-| Closing a client's old SMB connections when it boots again | in progress | The server can do it (`DropClient`). Nothing calls it yet. |
-| Start script for Windows PE: share mapping with retries, `ei.cfg` and `pid.txt`, Setup start | planned | A batch file; findings in spike 0001. |
-| Optional SMB port other than 445 (`net use /TCPPORT:`) | planned | Verified for one Windows PE build only. |
-| Fuzz tests for the embedded SMB server | tested | Raw stream, login, logged-in session, wildcard matching. Found five defects in the SMB library, listed in ADR 0003. Longest runs without a new finding, on 2026-11-13: session 20 minutes (0.8 million inputs), login 20 minutes (9.2 million), raw stream 10 minutes (4.5 million). That is little; CI only replays recorded inputs. |
-| Install source: external SMB server (`smb.mode: external`) | planned | Linux: generated Samba configuration. |
-| Install source on Windows hosts: built-in file sharing set up by Kyro | planned | Needs administrator rights. |
-| iPXE menu generated from available images | planned | |
-| Profile store, import and validation (`kyro profile import/list/show/remove`) | planned | Per ADR 0002. |
-| Token substitution in answer files (`{{mac}}`, `{{serial}}`, `{{uuid}}`) | planned | Per ADR 0002. |
-| Answer file injection at boot, image and profile menu | planned | Depends on the ADR 0001 spike. |
-| Automatic profile selection by MAC, UUID or serial | planned | Selection, not authentication. |
-| Per-image LabConfig bypass | planned | Opt-in, off by default, documented as unsupported by Microsoft. |
-| Per-image NIC driver injection | planned | |
+| proxyDHCP responder | tested | Unit and fuzz tests. In e2e next to a separate DHCP server (dnsmasq). Not tried next to other DHCP servers or through DHCP relays. |
+| Full DHCP mode | planned | `dhcp.mode: full` is refused with a message. |
+| DHCP switched off (`dhcp.mode: off`) | working | Kyro then expects your DHCP server to point at it. Unit tests only; no boot was tried this way. |
+| TFTP server | tested | Read-only, block size and transfer size options. Unit tests; e2e; in the installer test under systemd. |
+| HTTP boot server | tested | iPXE scripts, wimboot, the files of an installation, the callback. Unit and fuzz tests; e2e. |
+| UEFI x86-64 clients, Secure Boot off | tested | OVMF in QEMU only. |
+| UEFI x86-64 clients, Secure Boot on | planned | Not supported. Documented as such. |
+| BIOS x86-64 clients | in progress | A BIOS client is offered `undionly.kpxe`. No BIOS client was ever booted. |
+| Obtaining iPXE and wimboot | tested | `kyro bootfiles fetch` downloads fixed versions from the projects' release pages and checks them against compiled-in checksums. Unit tests; one real download on 2026-11-14. Never committed, never rebuilt. |
+| YAML configuration | tested | Unit tests. Unknown keys are errors. |
+| `kyro serve`: all services in one process | tested | Integration test on loopback; e2e. |
+| Fall-through to the local disk (`exit 1` in iPXE) | tested | e2e: OVMF goes on to the disk. Other firmware may behave differently. |
 
-## Phase 3: Management
+## Images and profiles
 
 | Item | Status | Notes |
 | ---- | ------ | ----- |
-| REST API | planned | |
-| Embedded web UI: list, add and remove images | planned | |
-| List of clients that booted | planned | |
+| Reading files out of an ISO in place | tested | Own UDF reader (`internal/udf`). Unit and fuzz tests; all 978 files of the evaluation ISO compared with a kernel mount. Only what Windows ISOs use: UDF 1.02, one partition. |
+| `kyro image add`, `list`, `remove` | tested | Copies or links (`--link`) an ISO, checks that it is a Windows installation medium, lists its editions. Unit tests; the evaluation ISO. |
+| Read-only SMB server (`internal/smbshare`) | tested | SMB 3.1.1, signing required, one account. Unit tests, tests with a real client, fuzz tests. Five defects found in the library are listed in ADR 0003. |
+| Install share: one share, one directory per image | tested | e2e. |
+| Start script for Windows PE | tested | Maps the share with retries, copies `ei.cfg` and `pid.txt`, starts Setup from RAM with the answer file. Unit tests; e2e. |
+| Closing a client's old SMB connections when it is installed again | working | Called when an installation starts. Not covered by a test of its own. |
+| `kyro share`: the SMB server on its own | tested | For testing. |
+| `kyro profile import`, `list`, `show`, `remove` | tested | Bare `autounattend.xml` or a bundle. Unit and fuzz tests. |
+| Built-in example profile | tested | A test fixture: wipes disk 0, public password. e2e installs with it. Made for the evaluation ISO. |
+| Token substitution (`{{mac}}`, `{{serial}}`, `{{uuid}}`, `{{callback_url}}`) | tested | Unit and fuzz tests. `{{mac}}` and `{{callback_url}}` in e2e; `{{serial}}` and `{{uuid}}` in unit tests only. |
+| Warnings of a profile shown at import and when arming | tested | Unit tests. |
+| Detecting that a profile wipes a disk | tested | Declared in the bundle, or detected in the XML; a bare answer file counts as wiping. Unit tests. |
+| Menu of images and profiles for a person at the client | planned | By design no menu can start an installation in this version. |
+| Hardware requirement bypass (LabConfig) per image | planned | Opt-in, see ADR 0001. Until then your answer file has to deal with it. |
+| NIC driver injection | planned | |
+| External SMB server (`smb.mode: external`) | planned | |
+| SMB port other than 445 | working | `smb.port`. Works with Windows PE of 24H2 and later only; verified by hand in the spike for one build, not in e2e. |
+
+## Arming and client state
+
+| Item | Status | Notes |
+| ---- | ------ | ----- |
+| `kyro arm`, `disarm`, `clients` | tested | By MAC, UUID or serial. Unit tests; e2e by MAC. Arming by UUID or serial was not tried with a booting machine. |
+| One installation per arming, no reinstall loop | tested | Unit and fuzz tests of the state machine; e2e: Setup's restarts and a reset after the installation all went through the network and were sent to the disk. |
+| An unarmed client gets no installer | tested | Unit tests; e2e with a second machine. |
+| `--confirm-wipe` for profiles that wipe a disk | tested | Unit tests; e2e. |
+| Callback from the installed system | tested | Unit and fuzz tests; e2e. Rate and size limited. Not authentication. |
+| `failed` after `install_timeout` | tested | Unit tests only. |
+| Menu for unknown clients (`unknown_clients: menu`) | tested | Off by default. Unit tests only; shows identifiers and boots the disk. |
+| Read-only status page and JSON (`/api/v1/clients`) | tested | Unit tests. Listens on `127.0.0.1:8080` by default. |
+
+## Running Kyro
+
+| Item | Status | Notes |
+| ---- | ------ | ----- |
+| `kyro doctor` | tested | Configuration, interface, ports, conflicting services, firewalls (prints commands, changes nothing), boot files, disk space. Unit tests with described machines; run by hand in the e2e network and in containers. The firewall and service checks were not run against real ufw, firewalld or Samba installations. |
+| `install.sh` | tested | `make test-installer`: Debian 13, Ubuntu 24.04 and Fedora 43 containers; under systemd in a Debian 13 container. Never run on a real server, and never against a real release page, because there is no release yet. |
+| systemd unit with `CAP_NET_BIND_SERVICE` only | tested | Capabilities and listening ports checked on the running service in the installer test. No client was booted from a service started this way; e2e runs Kyro as root. |
+| Release build | tested | `make release`: tarball, installer, `SHA256SUMS` for linux/amd64; the same commit gives the same tarball. The GitHub workflow that attaches them to a draft release has never run. |
+| Docker image and Compose example | working | Built and run on a private bridge network. Not tried with host networking or a booting client. |
+| End-to-end test in QEMU | tested | `make e2e`. One passing run. |
+| Signed releases | planned | Checksums only. |
+| linux/arm64 server | planned | |
+| Windows and macOS as server | planned | |
+
+## Management
+
+| Item | Status | Notes |
+| ---- | ------ | ----- |
+| Web UI that changes anything | planned | |
+| REST API that changes anything | planned | |
+| History of installations | planned | A record holds the current state only. |

@@ -15,7 +15,7 @@ It is not part of `make test` and does not run in the default CI.
 - Linux on x86-64 with KVM (`/dev/kvm`), and root rights for network
   namespaces and tap devices.
 - `qemu-system-x86_64`, `qemu-img`, OVMF, `swtpm`, `dnsmasq`, `socat`,
-  `curl`, `ip` and Go.
+  `curl`, `ip`, `setpriv` and Go.
   On Debian: `apt install qemu-system-x86 qemu-utils ovmf swtpm dnsmasq-base socat curl iproute2`.
 - A Windows 11 ISO that you supply. The test was written against the
   Windows 11 Enterprise evaluation ISO from Microsoft. The ISO is linked,
@@ -42,6 +42,7 @@ a reinstall loop would happen.
 
 | Step | Check |
 | ---- | ----- |
+| 0 | `kyro serve` runs as an unprivileged user (`nobody`) whose only capability is `CAP_NET_BIND_SERVICE`, with the file permissions that `install.sh` sets up: it can write the client state and nothing else. |
 | 1 | A machine that was never armed boots from the network. Kyro sends it to its disk, hands out nothing, and the disk stays empty. |
 | 2 | `kyro arm` with the example profile is refused without `--confirm-wipe` and leaves no record. With it, the client is `armed`. |
 | 3 | The armed machine boots, installs Windows without input, and the installed system calls back. The state is `provisioned`. The installer was handed out exactly once, although Setup restarted the machine through the network several times. |
@@ -59,6 +60,7 @@ non-zero exit status.
 | `KYRO_E2E_BOOTFILES` | empty | Directory with `wimboot` and `ipxeboot.tar.gz`; they are still checked against the pinned checksums |
 | `KYRO_E2E_TIMEOUT` | `5400` | Seconds to wait for the callback |
 | `KYRO_E2E_RAM` | `6G` | Memory of the virtual machine |
+| `KYRO_E2E_USER` | `nobody` | The user that `kyro serve` runs as |
 | `OVMF_CODE`, `OVMF_VARS` | Debian's paths | The firmware. No Secure Boot keys are enrolled, so Secure Boot is off. |
 
 ## Results
