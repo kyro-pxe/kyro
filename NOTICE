@@ -13,6 +13,9 @@ The Kyro binary contains the following Go modules. Their source code is not
 part of this repository; the Go toolchain downloads it at build time. The
 versions are recorded in go.mod.
 
+  * The Go standard library and runtime
+             Copyright 2009 The Go Authors. BSD 3-Clause License.
+
   * github.com/jfjallid/go-smb
              Copyright (c) 2023 Jimmy Fjällid. MIT License.
              According to its README it is based on
@@ -52,6 +55,7 @@ versions are recorded in go.mod.
              Copyright (c) 2009 The Go Authors. BSD 3-Clause License.
 
 The full license text of each module is in the LICENSE file of that module.
+Release tarballs carry these texts in the directory "licenses".
 All of these licenses are compatible with the GNU General Public License,
 version 3.
 

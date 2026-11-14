@@ -1,0 +1,46 @@
+name: Release
+
+# Builds the release files for a tag and attaches them to a DRAFT release.
+# Nothing is published until a maintainer publishes the draft by hand.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build the release files
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Test
+        run: |
+          go vet ./...
+          go test ./...
+
+      - name: Build
+        run: ./scripts/release/build.sh "$GITHUB_REF_NAME"
+
+      - name: Check the checksums
+        run: cd dist && sha256sum --check SHA256SUMS
+
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --draft --prerelease --verify-tag \
+            --title "Kyro $GITHUB_REF_NAME" \
+            --notes "Alpha. See docs/ROADMAP.md for what works and README.md for known limitations." \
+            dist/kyro_*_linux_amd64.tar.gz dist/install.sh dist/SHA256SUMS
