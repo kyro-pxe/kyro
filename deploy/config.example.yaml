@@ -1,0 +1,50 @@
+# Kyro configuration. The service and the CLI read /etc/kyro/config.yaml.
+# Only "interface", "address" and "smb.password" have no default.
+# Check a changed file with: kyro doctor
+
+# The network interface that faces the clients, and this machine's IPv4
+# address on it. Every service listens on this address.
+interface: eth0
+address: 192.0.2.10
+
+# Images, profiles, client state and boot files.
+data_dir: /var/lib/kyro
+
+dhcp:
+  # proxy: another DHCP server hands out addresses; Kyro only adds the boot
+  #        information. Nothing has to change on that server.
+  # off:   Kyro sends no DHCP at all. Point your DHCP server at Kyro yourself
+  #        (next-server and boot file name).
+  # "full" (Kyro hands out addresses) is not implemented in this version.
+  mode: proxy
+
+tftp:
+  enabled: true
+
+http:
+  port: 80
+
+smb:
+  # embedded: Kyro serves the installation files itself, read-only.
+  # off:      no install share; nothing can be installed.
+  mode: embedded
+  port: 445
+  username: kyro
+  # Not a secret: every client that is installed is told this password. It
+  # only keeps the share from being open to everything on the network.
+  # Letters, digits, dots, underscores and hyphens.
+  password: change-me
+
+status:
+  # Read-only status page and JSON. Keep it off the boot network. Empty
+  # switches it off.
+  listen: 127.0.0.1:8080
+
+# What a client gets that is not armed.
+# local: it is sent to its own disk at once.
+# menu:  it sees a menu first. The menu can show the client's identifiers
+#        and boot the local disk, nothing else.
+unknown_clients: local
+
+# A client that has not reported back after this time is marked as failed.
+install_timeout: 3h
