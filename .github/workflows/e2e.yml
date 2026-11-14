@@ -1,0 +1,37 @@
+name: End-to-end test
+
+# Installs Windows 11 on a virtual machine. It needs KVM, root rights, about
+# 22 GB of disk and a Windows 11 ISO, none of which a hosted runner has. It
+# runs only when started by hand, on a self-hosted runner that carries the
+# label "kyro-e2e". See scripts/e2e/README.md.
+on:
+  workflow_dispatch:
+    inputs:
+      iso:
+        description: Path of the Windows 11 ISO on the runner
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: Install Windows 11 in QEMU
+    runs-on: [self-hosted, linux, x64, kyro-e2e]
+    timeout-minutes: 150
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Run the test
+        env:
+          KYRO_E2E_ISO: ${{ inputs.iso }}
+        run: sudo --preserve-env=KYRO_E2E_ISO,PATH make e2e
+
+      # The results stay on the runner, under /var/lib/kyro-e2e/results.

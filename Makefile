@@ -4,7 +4,7 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 
 FUZZTIME ?= 1m
 
-.PHONY: build test lint fuzz clean
+.PHONY: build test lint fuzz e2e clean
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/kyro
@@ -29,6 +29,11 @@ fuzz:
 			go test -run '^$$' -fuzz "^$$target\$$" -fuzztime $(FUZZTIME) $$pkg || exit 1; \
 		done; \
 	done
+
+# Installs Windows 11 on a virtual machine through Kyro. Needs root, KVM,
+# about 22 GB of disk and KYRO_E2E_ISO. See scripts/e2e/README.md.
+e2e:
+	./scripts/e2e/run.sh run
 
 clean:
 	rm -rf bin dist
