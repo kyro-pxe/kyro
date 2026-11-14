@@ -1,0 +1,8 @@
+.git
+bin
+dist
+deploy/docker/data
+deploy/docker/isos
+deploy/docker/config.yaml
+*.iso
+*.wim
