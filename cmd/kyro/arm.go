@@ -22,11 +22,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"text/tabwriter"
 	"time"
 
 	"github.com/kyro-pxe/kyro/internal/boot"
 	"github.com/kyro-pxe/kyro/internal/config"
+	"github.com/kyro-pxe/kyro/internal/drivers"
 	"github.com/kyro-pxe/kyro/internal/images"
 	"github.com/kyro-pxe/kyro/internal/profiles"
 	"github.com/kyro-pxe/kyro/internal/state"
@@ -121,6 +123,15 @@ server, with what they reported.
 	}
 	fmt.Fprintf(e.stdout, "\nArmed: %s will be installed with image %s and profile %s on its next\nnetwork boot, once.\n", key, im.Name, p.Name)
 	fmt.Fprintf(e.stdout, "The arming lasts until %s (%s). If the client has not booted from the\nnetwork by then, it is not installed.\n\n%s\n", when(client.ArmedUntil), lifetimeText(lifetime), selectionNotice)
+	if packs, err := drivers.Open(cfg.DriversDir()).List(); err != nil {
+		fmt.Fprintf(e.stdout, "\nNote: the driver packs cannot be read, so the installation will fail: %v\n", err)
+	} else if len(packs) > 0 {
+		names := make([]string, len(packs))
+		for i, p := range packs {
+			names[i] = p.Name
+		}
+		fmt.Fprintf(e.stdout, "\nDriver packs that the installation is given: %s.\n", strings.Join(names, ", "))
+	}
 	if cfg.SMB.Mode != "embedded" {
 		fmt.Fprintln(e.stdout, "\nNote: the install share is switched off in the configuration (smb.mode), so the installation will fail.")
 	}

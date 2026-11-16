@@ -24,7 +24,8 @@ CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 NoNewPrivileges=yes
 
 # The file system is read-only for the service, except for the client state.
-# Images, profiles and boot files are changed by the CLI, not by the service.
+# Images, profiles, driver packs and boot files are changed by the CLI, not
+# by the service.
 ProtectSystem=strict
 ReadWritePaths=/var/lib/kyro/state
 # Read-only and not hidden: an ISO that was added with --link may live there.

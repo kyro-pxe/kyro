@@ -21,6 +21,7 @@ package boot
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -35,6 +36,7 @@ import (
 	"time"
 
 	"github.com/kyro-pxe/kyro/internal/config"
+	"github.com/kyro-pxe/kyro/internal/drivers"
 	"github.com/kyro-pxe/kyro/internal/images"
 	"github.com/kyro-pxe/kyro/internal/images/imagetest"
 	"github.com/kyro-pxe/kyro/internal/profiles"
@@ -87,6 +89,7 @@ func newFixture(t testing.TB) *fixture {
 	t.Cleanup(tree.Close)
 	fx.svc = &Service{
 		Config: cfg, State: st, Images: tree, Profiles: profs,
+		Drivers:   drivers.Open(cfg.DriversDir()),
 		Wimboot:   []byte("pretend wimboot"),
 		Log:       slog.New(slog.NewTextHandler(fx.logLines, nil)),
 		OnInstall: func(a netip.Addr) { fx.dropped = append(fx.dropped, a) },
@@ -275,6 +278,129 @@ func TestExpiredArmingGetsNoInstaller(t *testing.T) {
 	fx.svc.StatusHandler().ServeHTTP(status, httptest.NewRequest("GET", "/", nil))
 	if !strings.Contains(status.Body.String(), `class="s expired"`) || strings.Contains(status.Body.String(), "<td>armed until ") {
 		t.Errorf("status page after the arming ran out:\n%s", status.Body.String())
+	}
+}
+
+// addDrivers stores a driver pack made of the given files.
+func (fx *fixture) addDrivers(name string, files map[string]string) {
+	fx.t.Helper()
+	src := fx.t.TempDir()
+	for path, content := range files {
+		full := filepath.Join(src, filepath.FromSlash(path))
+		os.MkdirAll(filepath.Dir(full), 0o755)
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			fx.t.Fatal(err)
+		}
+	}
+	if _, err := fx.svc.Drivers.Add(src, name, false); err != nil {
+		fx.t.Fatal(err)
+	}
+}
+
+// TestDriverPacks: an installation is given the driver packs as one
+// cabinet, and the start script loads them before it needs the network.
+func TestDriverPacks(t *testing.T) {
+	// Without packs nothing changes: no cabinet in the boot script, none
+	// to fetch.
+	fx := newFixture(t)
+	armed := fx.arm(example.Name)
+	if body := fx.get(testQuery).Body.String(); strings.Contains(body, "kyrodrv") {
+		t.Fatalf("boot script without packs:\n%s", body)
+	}
+	if rec := fx.get("/i/" + armed.Token + "/kyrodrv.cab"); rec.Code != 404 {
+		t.Errorf("cabinet without packs: %d", rec.Code)
+	}
+
+	fx = newFixture(t)
+	fx.addDrivers("netkvm", map[string]string{"netkvm.inf": "the inf", "amd64/netkvm.sys": "the driver"})
+	fx.addDrivers("vioscsi", map[string]string{"vioscsi.inf": "another inf"})
+	armed = fx.arm(example.Name)
+	dir := "http://192.168.77.1/i/" + armed.Token + "/"
+
+	// Not before the installation has started.
+	if rec := fx.get("/i/" + armed.Token + "/kyrodrv.cab"); rec.Code != 404 {
+		t.Errorf("cabinet of an armed client that has not booted: %d", rec.Code)
+	}
+	body := fx.get(testQuery).Body.String()
+	cabLine, wimLine := "initrd "+dir+"kyrodrv.cab kyrodrv.cab\n", "initrd "+dir+"boot.wim boot.wim\n"
+	if !strings.Contains(body, cabLine) || strings.Index(body, cabLine) > strings.Index(body, wimLine) {
+		t.Fatalf("boot script with packs:\n%s", body)
+	}
+
+	rec := fx.get("/i/" + armed.Token + "/kyrodrv.cab")
+	got := rec.Body.Bytes()
+	if rec.Code != 200 || rec.Header().Get("Content-Length") != fmt.Sprint(len(got)) || rec.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("cabinet: %d, Content-Length %q, %d bytes", rec.Code, rec.Header().Get("Content-Length"), len(got))
+	}
+	for _, want := range []string{"MSCF", `netkvm\netkvm.inf`, `netkvm\amd64\netkvm.sys`, `vioscsi\vioscsi.inf`, "the driver", "another inf"} {
+		if !bytes.Contains(got, []byte(want)) {
+			t.Errorf("the cabinet lacks %q", want)
+		}
+	}
+	if !strings.Contains(fx.logLines.String(), "driver packs sent") {
+		t.Error("handing out the packs was not logged")
+	}
+
+	// The start script unpacks and loads them after Windows PE is up and
+	// before it waits for the network and connects the share.
+	start := fx.get("/i/" + armed.Token + "/kyro-start.cmd").Body.String()
+	order := []string{
+		"wpeinit\r\n",
+		`if not exist X:\Windows\System32\kyrodrv.cab goto nodrivers` + "\r\n",
+		`mkdir "X:\$WinPEDriver$" >nul 2>&1` + "\r\n",
+		`expand X:\Windows\System32\kyrodrv.cab -F:* "X:\$WinPEDriver$" >nul` + "\r\n",
+		`for /r "X:\$WinPEDriver$" %%i in (*.inf) do drvload "%%i"` + "\r\n",
+		"wpeutil InitializeNetwork >nul\r\n",
+		":nodrivers\r\n",
+		"wpeutil WaitForNetwork >nul\r\n",
+		"net use %KYRO_SHARE%",
+		`X:\sources\setup.exe`,
+	}
+	at := 0
+	for _, want := range order {
+		i := strings.Index(start[at:], want)
+		if i < 0 {
+			t.Fatalf("start script lacks %q after position %d:\n%s", want, at, start)
+		}
+		at += i + len(want)
+	}
+
+	// Like every file of an installation, the cabinet ends with it.
+	if rec := fx.do("POST", "/api/v1/callback/"+armed.Token, "192.168.77.80", nil); rec.Code != 200 {
+		t.Fatalf("callback: %d", rec.Code)
+	}
+	if rec := fx.get("/i/" + armed.Token + "/kyrodrv.cab"); rec.Code != 404 {
+		t.Errorf("cabinet after the installation: %d", rec.Code)
+	}
+}
+
+// A pack that was changed behind Kyro's back is not handed out, and the
+// installation does not start without it.
+func TestDamagedDriverPackStopsTheInstallation(t *testing.T) {
+	fx := newFixture(t)
+	fx.addDrivers("netkvm", map[string]string{"netkvm.inf": "the inf", "netkvm.sys": "the driver"})
+	sys := filepath.Join(fx.svc.Config.DriversDir(), "netkvm", "files", "netkvm.sys")
+	if err := os.WriteFile(sys, []byte("something else entirely"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	fx.arm(example.Name)
+	if body := fx.get(testQuery).Body.String(); !isLocal(body) {
+		t.Fatalf("with a changed pack the client got:\n%s", body)
+	}
+	c := fx.client()
+	if c.State != state.Failed || !strings.Contains(c.Failure, "netkvm") || !strings.Contains(c.Failure, "changed after") {
+		t.Errorf("record: %s, %q", c.State, c.Failure)
+	}
+
+	// Changed between the boot script and the download: no cabinet.
+	fx = newFixture(t)
+	fx.addDrivers("netkvm", map[string]string{"netkvm.inf": "the inf", "netkvm.sys": "the driver"})
+	armed := fx.arm(example.Name)
+	fx.get(testQuery)
+	sys = filepath.Join(fx.svc.Config.DriversDir(), "netkvm", "files", "netkvm.sys")
+	os.WriteFile(sys, []byte("something else entirely"), 0o640)
+	if rec := fx.get("/i/" + armed.Token + "/kyrodrv.cab"); rec.Code != 500 || bytes.Contains(rec.Body.Bytes(), []byte("MSCF")) {
+		t.Errorf("cabinet of a changed pack: %d", rec.Code)
 	}
 }
 
@@ -572,14 +698,14 @@ func TestScriptsRefuseUnsafeValues(t *testing.T) {
 				t.Errorf("%s %q accepted:\n%s", name, bad, out)
 			}
 		}
-		if s, err := installScript("http://10.0.0.1", strings.Repeat("a", 32), bad, "p"); err == nil && bad != ".." {
+		if s, err := installScript("http://10.0.0.1", strings.Repeat("a", 32), bad, "p", false); err == nil && bad != ".." {
 			t.Errorf("image %q accepted in a boot script:\n%s", bad, s)
 		}
-		if s, err := installScript("http://10.0.0.1", bad, "win11", "p"); err == nil && bad != ".." {
+		if s, err := installScript("http://10.0.0.1", bad, "win11", "p", false); err == nil && bad != ".." {
 			t.Errorf("token %q accepted in a boot script:\n%s", bad, s)
 		}
 	}
-	if _, err := installScript("http://10.0.0.1/x y", strings.Repeat("a", 32), "win11", "p"); err == nil {
+	if _, err := installScript("http://10.0.0.1/x y", strings.Repeat("a", 32), "win11", "p", false); err == nil {
 		t.Error("an odd base URL was accepted")
 	}
 }
@@ -719,7 +845,7 @@ func FuzzCallback(f *testing.F) {
 // the installation token or the password of the install share.
 func TestScriptErrorsDoNotQuoteSecrets(t *testing.T) {
 	const secret = "s3cret value"
-	if _, err := installScript("http://192.0.2.1", secret, "image", "profile"); err == nil || strings.Contains(err.Error(), secret) {
+	if _, err := installScript("http://192.0.2.1", secret, "image", "profile", false); err == nil || strings.Contains(err.Error(), secret) {
 		t.Errorf("token: %v", err)
 	}
 	_, err := startScript(startParams{Address: "192.0.2.1", Port: 445, Username: "kyro", Password: secret, Image: "image", Install: "sources/install.wim"})
@@ -727,7 +853,7 @@ func TestScriptErrorsDoNotQuoteSecrets(t *testing.T) {
 		t.Errorf("password: %v", err)
 	}
 	// What is not a secret is still named, so that the error is useful.
-	if _, err := installScript("http://192.0.2.1", "abc", "bad image", "profile"); err == nil || !strings.Contains(err.Error(), "bad image") {
+	if _, err := installScript("http://192.0.2.1", "abc", "bad image", "profile", false); err == nil || !strings.Contains(err.Error(), "bad image") {
 		t.Errorf("image: %v", err)
 	}
 }

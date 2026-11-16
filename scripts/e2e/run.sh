@@ -273,6 +273,12 @@ boots() {
 	"$KYRO" clients --json | tr -d ' \n' | grep -o "\"client\":\"mac:$(vm_mac "$1")\"[^}]*" | grep -o '"boots":[0-9]*' | cut -d: -f2
 }
 
+# booted_since prints "yes" once a machine has asked Kyro more often than
+# the given number of times.
+booted_since() {
+	[ "$(boots "$1")" -gt "$2" ] && echo yes
+}
+
 # count prints how many lines of Kyro's log contain a text.
 count() { grep -c -- "$1" "$WORK/log/kyro.log" || true; }
 
@@ -376,6 +382,11 @@ cmd_run() {
 	"$KYRO" arm "$(vm_mac 0)" --image win11 --profile kyro-example --confirm-wipe >"$results/arm.txt"
 	expect "the machine is armed" "$(state 0)" armed
 
+	# For step 5: machine 1 is armed as well, for two minutes, and nobody
+	# switches it on in that time.
+	"$KYRO" arm "$(vm_mac 1)" --image win11 --profile kyro-example --confirm-wipe --expires 2m >"$results/arm-forgotten.txt"
+	expect "machine 1 is armed for two minutes" "$(state 1)" armed
+
 	say "--- 3. the armed machine installs Windows by itself"
 	t0=$(date +%s)
 	cmd_vm_start 0 fresh
@@ -416,6 +427,19 @@ cmd_run() {
 	if [ "$RECORD" = 1 ]; then
 		sleep 30 # the logon screen after the reset
 	fi
+
+	say "--- 5. an arming that nobody used has run out"
+	# The service noticed by itself, as the user it runs as.
+	expect "machine 1 shows as expired" "$(state 1)" expired
+	before=$(boots 1)
+	cmd_vm_start 1
+	wait_for 180 yes "machine 1 asks Kyro what to boot" booted_since 1 "$before"
+	sleep 20
+	expect "it was sent to its disk" "$([ "$(count "boot: local disk.*state=expired.*mac=$mac1")" -ge 1 ] && echo yes)" yes
+	expect "it is still expired" "$(state 1)" expired
+	expect "the installer was still handed out exactly once" "$(count 'installation started')" 1
+	expect "its disk is still empty" "$([ "$(stat -c %s "$WORK/vm1/disk.qcow2")" -lt 2000000 ] && echo yes)" yes
+	cmd_vm_stop 1
 	# The disk of a passed run explains nothing and takes about 15 GB.
 	# After a failure it stays, to be looked at.
 	cmd_vm_stop 0 || true

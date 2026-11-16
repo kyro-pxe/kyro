@@ -23,6 +23,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/kyro-pxe/kyro/internal/drivers"
 )
 
 // ShareName is the name of the install share. Every image is a directory
@@ -81,8 +83,9 @@ exit 1
 `
 }
 
-// installScript loads Windows PE with the files of one installation.
-func installScript(base, token, image, profile string) (string, error) {
+// installScript loads Windows PE with the files of one installation. With
+// drivers it also loads the cabinet of driver packs.
+func installScript(base, token, image, profile string, drivers bool) (string, error) {
 	// The errors name what is wrong and never quote the token: they are
 	// logged and kept in the client's record, and the token is the one
 	// thing that opens the files of this installation.
@@ -97,15 +100,28 @@ func installScript(base, token, image, profile string) (string, error) {
 		return "", fmt.Errorf("refusing to write the profile name %q into a boot script", profile)
 	}
 	dir := base + "/i/" + token + "/"
-	return "#!ipxe\n" +
+	script := "#!ipxe\n" +
 		"echo Kyro: installing image " + image + " with profile " + profile + "\n" +
 		"kernel " + base + "/wimboot\n" +
 		"initrd " + dir + "winpeshl.ini winpeshl.ini\n" +
 		"initrd " + dir + "kyro-start.cmd kyro-start.cmd\n" +
-		"initrd " + dir + "autounattend.xml autounattend.xml\n" +
+		"initrd " + dir + "autounattend.xml autounattend.xml\n"
+	if drivers {
+		script += "initrd " + dir + driversCabinet + " " + driversCabinet + "\n"
+	}
+	return script +
 		"initrd " + dir + "boot.wim boot.wim\n" +
 		"boot || exit 1\n", nil
 }
+
+// driversCabinet is the name of the cabinet of driver packs, in the URL
+// and in Windows PE, where wimboot puts it into X:\Windows\System32.
+const driversCabinet = drivers.CabinetName
+
+// driversDir is where the start script unpacks the driver packs. Windows
+// Setup looks for a directory of this name on every drive and adds the
+// drivers it finds there to the system it installs.
+const driversDir = `X:\$WinPEDriver$`
 
 // winpeshl is the file that makes Windows PE run Kyro's start script in
 // place of Setup.
@@ -162,6 +178,18 @@ func startScript(p startParams) ([]byte, error) {
 		`echo.`,
 		`echo Kyro: starting the network`,
 		`wpeinit`,
+		// Driver packs, if this installation was given any. They are
+		// loaded now, so that the network card works before the share is
+		// connected, and they stay where Setup looks for drivers to add to
+		// the installed system.
+		`if not exist X:\Windows\System32\` + driversCabinet + ` goto nodrivers`,
+		`echo Kyro: loading drivers`,
+		`mkdir "` + driversDir + `" >nul 2>&1`,
+		`expand X:\Windows\System32\` + driversCabinet + ` -F:* "` + driversDir + `" >nul`,
+		`if errorlevel 1 echo Kyro: the driver packs could not be unpacked`,
+		`for /r "` + driversDir + `" %%i in (*.inf) do drvload "%%i"`,
+		`wpeutil InitializeNetwork >nul`,
+		`:nodrivers`,
 		`wpeutil WaitForNetwork >nul`,
 		`set KYRO_TRIES=0`,
 		`:connect`,

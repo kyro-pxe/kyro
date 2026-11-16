@@ -43,9 +43,10 @@ a reinstall loop would happen.
 | ---- | ----- |
 | 0 | `kyro serve` runs as an unprivileged user (`nobody`) whose only capability is `CAP_NET_BIND_SERVICE`, with the file permissions that `install.sh` sets up: it can write the client state and nothing else. |
 | 1 | A machine that was never armed boots from the network. Kyro sends it to its disk, hands out nothing, and the disk stays empty. |
-| 2 | `kyro arm` with the example profile is refused without `--confirm-wipe` and leaves no record. With it, the client is `armed`. |
+| 2 | `kyro arm` with the example profile is refused without `--confirm-wipe` and leaves no record. With it, the client is `armed`. The first machine is armed as well, with `--expires 2m`, and stays switched off. |
 | 3 | The armed machine boots, installs Windows without input, and the installed system calls back. The state is `provisioned`. The installer was handed out exactly once, although Setup restarted the machine through the network several times. |
 | 4 | The machine is reset. It asks Kyro again, is sent to its disk, the state stays `provisioned`, and Windows starts from the disk (seen as a DHCP request with the vendor class `MSFT 5.0`). |
+| 5 | The first machine, whose arming ran out during the installation of the other, shows as `expired`. It is started, asks Kyro, is sent to its disk, and its disk stays empty. |
 
 The first failed check stops the test with `e2e: FAILED: ...` and a
 non-zero exit status.

@@ -378,6 +378,9 @@ func (c *Config) ImagesDir() string { return filepath.Join(c.DataDir, "images") 
 // ProfilesDir is where the profiles are kept.
 func (c *Config) ProfilesDir() string { return filepath.Join(c.DataDir, "profiles") }
 
+// DriversDir is where the driver packs for Windows PE are kept.
+func (c *Config) DriversDir() string { return filepath.Join(c.DataDir, "drivers") }
+
 // StateDir is where the client records are kept. It is the only directory
 // that the service writes to.
 func (c *Config) StateDir() string { return filepath.Join(c.DataDir, "state") }

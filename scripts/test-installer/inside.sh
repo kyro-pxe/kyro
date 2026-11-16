@@ -115,6 +115,7 @@ expect "config.yaml" "$(mode_of /etc/kyro/config.yaml)" "root:kyro 640"
 expect "/var/lib/kyro" "$(mode_of /var/lib/kyro)" "root:kyro 750"
 expect "images" "$(mode_of /var/lib/kyro/images)" "root:kyro 750"
 expect "profiles" "$(mode_of /var/lib/kyro/profiles)" "root:kyro 750"
+expect "drivers" "$(mode_of /var/lib/kyro/drivers)" "root:kyro 750"
 expect "boot" "$(mode_of /var/lib/kyro/boot)" "root:kyro 750"
 expect "state" "$(mode_of /var/lib/kyro/state)" "kyro:kyro 750"
 if [ -d /etc/systemd ] && [ ! -f /etc/systemd/system/kyro.service ]; then fail "no unit file"; fi

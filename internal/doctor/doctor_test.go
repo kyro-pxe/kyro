@@ -30,6 +30,7 @@ import (
 	"testing"
 
 	"github.com/kyro-pxe/kyro/internal/config"
+	"github.com/kyro-pxe/kyro/internal/drivers"
 )
 
 // fake is a machine that the tests describe.
@@ -130,6 +131,7 @@ func TestHealthyMachine(t *testing.T) {
 		"[info] Images: None yet.",
 		"kyro image add",
 		"[info] Profiles: None yet.",
+		"[info] Driver packs: None. Installations use the drivers that come with Windows.",
 		"[ok  ] Disk space for images: 100 GB free",
 		"[info] Secure Boot: Switched on (secure_boot, the default)",
 		"selection, not authentication",
@@ -334,6 +336,20 @@ func TestDataChecks(t *testing.T) {
 	os.WriteFile(filepath.Join(cfg.ProfilesDir(), "broken", "profile.json"), []byte("{"), 0o644)
 	out, _, _ = report(t, healthy(), cfg)
 	wants(t, out, "[FAIL] Profiles")
+
+	// A driver pack that was changed after it was added stops every
+	// installation, so it is a failure here.
+	src := t.TempDir()
+	os.WriteFile(filepath.Join(src, "nic.inf"), []byte("inf"), 0o644)
+	os.WriteFile(filepath.Join(src, "nic.sys"), []byte("driver"), 0o644)
+	if _, err := drivers.Open(cfg.DriversDir()).Add(src, "nic", false); err != nil {
+		t.Fatal(err)
+	}
+	out, _, _ = report(t, healthy(), cfg)
+	wants(t, out, "[ok  ] Driver packs: nic. Every installation is given all of them.")
+	os.WriteFile(filepath.Join(cfg.DriversDir(), "nic", "files", "nic.sys"), []byte("something else"), 0o640)
+	out, _, _ = report(t, healthy(), cfg)
+	wants(t, out, "[FAIL] Driver packs: driver pack nic: nic.sys was changed after the pack was added", "No installation starts until this is repaired.")
 }
 
 func TestDoctorChangesNothing(t *testing.T) {

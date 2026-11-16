@@ -38,6 +38,7 @@ import (
 
 	"github.com/kyro-pxe/kyro/internal/bootfiles"
 	"github.com/kyro-pxe/kyro/internal/config"
+	"github.com/kyro-pxe/kyro/internal/drivers"
 	"github.com/kyro-pxe/kyro/internal/images"
 	"github.com/kyro-pxe/kyro/internal/profiles"
 )
@@ -508,6 +509,24 @@ func checkData(sys System, cfg config.Config) []Finding {
 		}
 		sort.Strings(names)
 		out = append(out, Finding{Level: OK, Title: "Profiles", Detail: strings.Join(names, ", ") + "."})
+	}
+	// Driver packs are optional. What is there must be readable, because
+	// an installation does not start with a pack that cannot be handed out.
+	packs, err := drivers.Open(cfg.DriversDir()).List()
+	if err == nil && len(packs) > 0 {
+		_, _, err = drivers.Open(cfg.DriversDir()).Cabinet()
+	}
+	switch {
+	case err != nil:
+		out = append(out, Finding{Level: Fail, Title: "Driver packs", Detail: err.Error() + " No installation starts until this is repaired.", Fix: []string{"kyro driver list", "kyro driver add /path/to/driver --name <name> --replace"}})
+	case len(packs) == 0:
+		out = append(out, Finding{Level: Info, Title: "Driver packs", Detail: "None. Installations use the drivers that come with Windows. If Windows PE has no driver for the network card or the disk controller of a machine, add one with 'kyro driver add'."})
+	default:
+		names := make([]string, len(packs))
+		for i, p := range packs {
+			names[i] = p.Name
+		}
+		out = append(out, Finding{Level: OK, Title: "Driver packs", Detail: strings.Join(names, ", ") + ". Every installation is given all of them."})
 	}
 
 	if free, ok := sys.FreeBytes(cfg.ImagesDir()); ok {

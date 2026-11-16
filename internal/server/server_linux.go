@@ -38,6 +38,7 @@ import (
 	"github.com/kyro-pxe/kyro/internal/bootfiles"
 	"github.com/kyro-pxe/kyro/internal/config"
 	"github.com/kyro-pxe/kyro/internal/dhcp"
+	"github.com/kyro-pxe/kyro/internal/drivers"
 	"github.com/kyro-pxe/kyro/internal/images"
 	"github.com/kyro-pxe/kyro/internal/profiles"
 	"github.com/kyro-pxe/kyro/internal/smbshare"
@@ -124,6 +125,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 		State:    st,
 		Images:   tree,
 		Profiles: profiles.Open(cfg.ProfilesDir()),
+		Drivers:  drivers.Open(cfg.DriversDir()),
 		Wimboot:  loaded["wimboot"],
 		Log:      log,
 	}

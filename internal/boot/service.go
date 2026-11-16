@@ -37,7 +37,9 @@ import (
 	"net/netip"
 	"time"
 
+	"github.com/kyro-pxe/kyro/internal/cab"
 	"github.com/kyro-pxe/kyro/internal/config"
+	"github.com/kyro-pxe/kyro/internal/drivers"
 	"github.com/kyro-pxe/kyro/internal/images"
 	"github.com/kyro-pxe/kyro/internal/profiles"
 	"github.com/kyro-pxe/kyro/internal/state"
@@ -49,6 +51,9 @@ type Service struct {
 	State    *state.Store
 	Images   *images.Tree
 	Profiles *profiles.Store
+	// Drivers holds the driver packs that every installation is given.
+	// It may be nil.
+	Drivers *drivers.Store
 	// Wimboot is the content of the wimboot binary.
 	Wimboot []byte
 	Log     *slog.Logger
@@ -183,7 +188,43 @@ func (s *Service) prepare(c state.Client) (string, error) {
 	if _, err := s.startScript(c); err != nil {
 		return "", err
 	}
-	return installScript(s.Config.HTTPBase(), c.Token, c.Image, c.Profile)
+	packs, _, err := s.driverCabinet()
+	if err != nil {
+		return "", err
+	}
+	return installScript(s.Config.HTTPBase(), c.Token, c.Image, c.Profile, len(packs) > 0)
+}
+
+// driverCabinet returns the files of the cabinet of driver packs and its
+// size. Without packs it returns no files.
+func (s *Service) driverCabinet() ([]cab.File, int64, error) {
+	if s.Drivers == nil {
+		return nil, 0, nil
+	}
+	return s.Drivers.Cabinet()
+}
+
+// serveDrivers sends the driver packs as one cabinet.
+func (s *Service) serveDrivers(w http.ResponseWriter, r *http.Request, c state.Client) {
+	files, size, err := s.driverCabinet()
+	if err != nil {
+		s.Log.Error("boot: cannot hand out the driver packs", "client", c.Key.String(), "err", err)
+		http.Error(w, "the driver packs could not be read; see the Kyro server", http.StatusInternalServerError)
+		return
+	}
+	if len(files) == 0 {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/vnd.ms-cab-compressed")
+	w.Header().Set("Content-Length", fmt.Sprint(size))
+	if err := cab.Write(w, files); err != nil {
+		// The size went out already; the client sees a transfer that
+		// broke off and does not start Windows PE.
+		s.Log.Error("boot: sending the driver packs broke off", "client", c.Key.String(), "err", err)
+		return
+	}
+	s.Log.Info("boot: driver packs sent", "client", c.Key.String(), "files", len(files), "bytes", size, "addr", remoteAddr(r).String())
 }
 
 // CallbackURL returns the address at which the installed system of one
@@ -252,6 +293,9 @@ func (s *Service) handleInstallFile(w http.ResponseWriter, r *http.Request) {
 		}
 	case "boot.wim":
 		s.serveBootWIM(w, r, c)
+		return
+	case driversCabinet:
+		s.serveDrivers(w, r, c)
 		return
 	default:
 		http.NotFound(w, r)

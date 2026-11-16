@@ -539,11 +539,13 @@ do_install() {
 	say "Installed $BIN ($new_version)."
 
 	# The service may read everything and write the client state only.
-	# Images, profiles and boot files are changed by the CLI, as root.
+	# Images, profiles, driver packs and boot files are changed by the CLI,
+	# as root.
 	make_dir "$ETC_DIR" "root:$SVC_USER" 0750
 	make_dir "$DATA_DIR" "root:$SVC_USER" 0750
 	make_dir "$DATA_DIR/images" "root:$SVC_USER" 0750
 	make_dir "$DATA_DIR/profiles" "root:$SVC_USER" 0750
+	make_dir "$DATA_DIR/drivers" "root:$SVC_USER" 0750
 	make_dir "$DATA_DIR/boot" "root:$SVC_USER" 0750
 	make_dir "$DATA_DIR/state" "$SVC_USER:$SVC_USER" 0750
 

@@ -371,3 +371,52 @@ func TestServeFailsWithoutBootFiles(t *testing.T) {
 		t.Errorf("serve: %s", out)
 	}
 }
+
+func TestDriverCommands(t *testing.T) {
+	c := newCLI(t)
+	wants(t, c.ok("driver", "list"), "No driver packs")
+
+	src := filepath.Join(t.TempDir(), "Intel (R) I226 v2.1")
+	os.MkdirAll(filepath.Join(src, "x64"), 0o755)
+	os.WriteFile(filepath.Join(src, "e2f.inf"), []byte("[Version]"), 0o644)
+	os.WriteFile(filepath.Join(src, "x64", "e2f.sys"), bytes.Repeat([]byte("x"), 3000), 0o644)
+
+	out := c.ok("driver", "add", src)
+	wants(t, out, "Driver pack intel-r-i226-v2-1 added: 2 files, 3 KB.", "Drivers that Windows PE will load (1):", "  e2f.inf",
+		"Every installation from now on is given this pack", "runs with full rights", "does not\ncheck where they come from")
+	wants(t, c.fails(1, "driver", "add", src), "already", "--replace")
+	wants(t, c.ok("driver", "add", src, "--replace"), "added")
+	wants(t, c.ok("driver", "add", src, "--name", "nic"), "Driver pack nic added")
+	wants(t, c.ok("drivers", "ls"), "NAME", "intel-r-i226-v2-1", "nic", src, "Every installation is given all of them: 6 KB of at most 100 MB.")
+
+	// Arming says which packs the installation gets.
+	c.ok("image", "add", imagetest.Write(t), "--name", "win11")
+	c.ok("profile", "import", "--example")
+	wants(t, c.ok("arm", "52:54:00:77:00:01", "--image", "win11", "--profile", "kyro-example", "--confirm-wipe"),
+		"Driver packs that the installation is given: intel-r-i226-v2-1, nic.")
+
+	wants(t, c.ok("driver", "remove", "nic"), "Driver pack nic removed.")
+	wants(t, c.fails(1, "driver", "remove", "nic"), `no driver pack called "nic"`)
+	wants(t, c.ok("driver", "rm", "intel-r-i226-v2-1"), "removed")
+	wants(t, c.ok("driver", "list"), "No driver packs")
+
+	empty := t.TempDir()
+	for _, tt := range []struct {
+		args []string
+		code int
+		want string
+	}{
+		{[]string{"driver"}, 2, "use 'kyro driver add"},
+		{[]string{"driver", "install"}, 2, "unknown subcommand"},
+		{[]string{"driver", "add"}, 2, "name one directory"},
+		{[]string{"driver", "add", src, src}, 2, "name one directory"},
+		{[]string{"driver", "add", src, "--name", "Not Valid"}, 2, "cannot be the name of a pack"},
+		{[]string{"driver", "add", "/"}, 2, "cannot be the name of a pack"},
+		{[]string{"driver", "add", empty, "--name", "x"}, 1, "no .inf file"},
+		{[]string{"driver", "add", filepath.Join(src, "e2f.inf"), "--name", "x"}, 1, "not a directory"},
+		{[]string{"driver", "remove"}, 2, "name one driver pack"},
+	} {
+		wants(t, c.fails(tt.code, tt.args...), tt.want)
+	}
+	wants(t, c.ok("driver", "list"), "No driver packs")
+}
