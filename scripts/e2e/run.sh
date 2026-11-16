@@ -33,6 +33,10 @@ RECORD="${KYRO_E2E_RECORD:-0}"
 # A directory whose subdirectories are driver packs. Each is added with
 # 'kyro driver add', and every installation is given all of them.
 DRIVERS="${KYRO_E2E_DRIVERS:-}"
+# 1 installs with a copy of the example profile in which the computer name
+# is a value given when arming ({{var:hostname}}, kyro arm --set), and
+# checks that the installed Windows carries that name.
+VALUES="${KYRO_E2E_VALUES:-0}"
 # 1 gives the machines a virtio network card and a virtio SCSI controller.
 # Windows has drivers for neither, so the installation only works with the
 # virtio drivers in KYRO_E2E_DRIVERS.
@@ -52,6 +56,8 @@ BR=br0
 KYRO_IP=192.168.78.1
 DHCP_IP=192.168.78.2
 STATUS=127.0.0.1:8080
+# The computer name that KYRO_E2E_VALUES=1 gives to the installed machine.
+HOSTNAME_VALUE="KYRO-E2E-VAR"
 
 # Two machines: number 0 is armed and installed, number 1 is never armed.
 vm_mac() { echo "52:54:00:78:00:0$(($1 + 1))"; }
@@ -136,6 +142,12 @@ CONF
 		"$KYRO" image add "$ISO" --name win11 --link
 	fi
 	"$KYRO" profile import --example --replace >"$WORK/log/profile-import.log"
+	if [ "$VALUES" = 1 ]; then
+		"$KYRO" profile show kyro-example --xml | sed 's|KYRO-{{mac:8}}|{{var:hostname}}|' >"$WORK/run/values.xml"
+		grep -q '<ComputerName>{{var:hostname}}</ComputerName>' "$WORK/run/values.xml" ||
+			die "the example profile has no computer name to replace"
+		"$KYRO" profile import "$WORK/run/values.xml" --name kyro-example-values --replace >>"$WORK/log/profile-import.log"
+	fi
 	# Exactly the driver packs of this run.
 	local pack
 	for pack in $("$KYRO" driver list | awk 'NR > 1 && $3 ~ /^[0-9]+$/ { print $1 }'); do
@@ -371,6 +383,7 @@ cmd_run() {
 	caption="Secure Boot on"
 	[ "$SECURE_BOOT" = 1 ] || caption="Secure Boot off"
 	[ "$UNSIGNED" = 1 ] && caption="$caption, unsigned iPXE"
+	[ "$VALUES" = 1 ] && caption="$caption, computer name given when arming"
 	[ "$VIRTIO" = 1 ] && caption="$caption, virtio network card and disk controller"
 	[ -n "$DRIVERS" ] && caption="$caption, with driver packs"
 	cmd_up
@@ -420,12 +433,21 @@ cmd_run() {
 	cmd_vm_stop 1
 
 	say "--- 2. arming needs the confirmation that a disk is wiped"
-	if "$KYRO" arm "$(vm_mac 0)" --image win11 --profile kyro-example >"$results/arm-refused.txt" 2>&1; then
+	local profile=kyro-example values=()
+	if [ "$VALUES" = 1 ]; then
+		profile=kyro-example-values
+		values=(--set "hostname=$HOSTNAME_VALUE")
+		if "$KYRO" arm "$(vm_mac 0)" --image win11 --profile "$profile" --confirm-wipe >"$results/arm-without-value.txt" 2>&1; then
+			die "arming without the value that the profile needs was accepted"
+		fi
+		say "PASS: arming without the value that the profile needs is refused"
+	fi
+	if "$KYRO" arm "$(vm_mac 0)" --image win11 --profile "$profile" "${values[@]}" >"$results/arm-refused.txt" 2>&1; then
 		die "arming without --confirm-wipe was accepted"
 	fi
 	say "PASS: arming without --confirm-wipe is refused"
 	expect "and leaves no record" "$(state 0)" none
-	"$KYRO" arm "$(vm_mac 0)" --image win11 --profile kyro-example --confirm-wipe >"$results/arm.txt"
+	"$KYRO" arm "$(vm_mac 0)" --image win11 --profile "$profile" "${values[@]}" --confirm-wipe >"$results/arm.txt"
 	expect "the machine is armed" "$(state 0)" armed
 
 	# For step 5: machine 1 is armed as well, for two minutes, and nobody
@@ -457,6 +479,13 @@ cmd_run() {
 	wait_for "$INSTALL_TIMEOUT" provisioned "the installed system reports back" state 0
 	say "provisioned after $((($(date +%s) - t0) / 60)) minutes"
 	expect "Kyro logged the callback" "$(count 'callback: client provisioned')" 1
+	if [ "$VALUES" = 1 ]; then
+		# The installed Windows asks for its address under its name.
+		expect "the installed Windows has the computer name that was given when arming" \
+			"$(grep -c "client provides name: $HOSTNAME_VALUE\$" "$WORK/log/dnsmasq.log" | sed 's/^[1-9][0-9]*$/yes/')" yes
+		expect "the value is gone from the record now that the installation has ended" \
+			"$(grep -l "$HOSTNAME_VALUE" "$WORK"/data/state/*.json | wc -l)" 0
+	fi
 	expect "the installer was handed out exactly once" "$(count 'installation started')" 1
 	during=$(boots 0)
 	expect "Setup's restarts went through the network and were sent to the disk ($during network boots)" \

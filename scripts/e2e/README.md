@@ -44,7 +44,7 @@ a reinstall loop would happen.
 | 0 | `kyro serve` runs as an unprivileged user (`nobody`) whose only capability is `CAP_NET_BIND_SERVICE`, with the file permissions that `install.sh` sets up: it can write the client state and nothing else. |
 | 1 | A machine that was never armed boots from the network. Kyro sends it to its disk, hands out nothing, and the disk stays empty. |
 | 2 | `kyro arm` with the example profile is refused without `--confirm-wipe` and leaves no record. With it, the client is `armed`. The first machine is armed as well, with `--expires 2m`, and stays switched off. |
-| 3 | The armed machine boots, installs Windows without input, and the installed system calls back. The state is `provisioned`. The installer was handed out exactly once, although Setup restarted the machine through the network several times. |
+| 3 | The armed machine boots, and Windows PE reports that it connected the share and started Setup. It installs Windows without input, and the installed system calls back. The state is `provisioned`. The installer was handed out exactly once, although Setup restarted the machine through the network several times. |
 | 4 | The machine is reset. It asks Kyro again, is sent to its disk, the state stays `provisioned`, and Windows starts from the disk (seen as a DHCP request with the vendor class `MSFT 5.0`). |
 | 5 | The first machine, whose arming ran out during the installation of the other, shows as `expired`. It is started, asks Kyro, is sent to its disk, and its disk stays empty. |
 
@@ -65,6 +65,7 @@ non-zero exit status.
 | `KYRO_E2E_UNSIGNED` | `0` | `1` sets `secure_boot: false` in Kyro, which then hands out the unsigned iPXE. Only with `KYRO_E2E_SECURE_BOOT=0`. |
 | `KYRO_E2E_RECORD` | `0` | `1` records the screen of the installed machine in real time and writes `install.mp4` into the results: nothing skipped, nothing sped up, a clock in the corner. Needs `ffmpeg` and Python with Pillow. |
 | `KYRO_E2E_DRIVERS` | empty | A directory whose subdirectories are driver packs. Each is added with `kyro driver add`; the test then also checks that the packs were handed out and, after the installation, that their drivers are in the driver store of the installed Windows (needs `qemu-nbd`, the `nbd` kernel module and `7z`). |
+| `KYRO_E2E_VALUES` | `0` | `1` installs with a copy of the example profile whose computer name is `{{var:hostname}}`, arms with `--set hostname=KYRO-E2E-VAR`, and checks that arming without the value is refused, that the installed Windows asks for its address under that name, and that the value is gone from the record afterwards. |
 | `KYRO_E2E_VIRTIO` | `0` | `1` gives the machines a virtio network card and a virtio SCSI controller. Windows has drivers for neither, so this only passes with the virtio drivers in `KYRO_E2E_DRIVERS`. |
 | `OVMF_CODE`, `OVMF_VARS` | Debian's paths | The firmware |
 
