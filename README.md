@@ -40,7 +40,9 @@ without anyone touching it. The installed system reports back, and
 - A machine that is not armed never gets an installer, and an arming that
   is not used runs out (after 24 hours unless you say otherwise).
 - Kyro does not generate answer files. You bring your own, and it fills in
-  per-machine values such as `{{mac}}` or `{{serial}}`.
+  per-machine values: what the machine says about itself, such as
+  `{{mac}}` or `{{serial}}`, and what you give when arming it, such as
+  `{{var:hostname}}` with `kyro arm --set hostname=PC-014`.
 
 Kyro contains no Microsoft software. You need your own Windows ISO and
 licenses. iPXE and wimboot are separate programs (GPLv2) that Kyro downloads
@@ -113,6 +115,17 @@ The state goes from `armed` to `installing` when the client fetches the
 installer, and to `provisioned` when the installed system calls back. In
 Kyro's own test runs that took 24 to 36 minutes on a virtual machine. A client
 that does not call back within `install_timeout` (3 hours) becomes `failed`.
+
+If the answer file has places for values of the one machine, written
+`{{var:NAME}}`, give them when arming:
+
+```sh
+sudo kyro arm 52:54:00:12:34:56 --image win11 --profile office \
+    --set hostname=PC-014 --set product_key=XXXXX-XXXXX-XXXXX-XXXXX-XXXXX
+```
+
+Kyro refuses to arm without a value the profile needs, keeps the values
+until the installation ends, and deletes them then.
 
 While a client is `installing`, `kyro clients` says how far it has come:
 whether Windows PE connected to the install share, whether Setup was

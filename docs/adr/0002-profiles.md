@@ -145,6 +145,7 @@ serves the file:
 | `{{serial}}` | SMBIOS serial number                    | as reported, filtered      |
 | `{{uuid}}`   | SMBIOS system UUID                      | 8-4-4-4-12, lower case     |
 | `{{callback_url}}` | Where the installed system reports that it is done | an `http` URL |
+| `{{var:NAME}}` | A value that the administrator gives for this one machine when arming it | as given, see below |
 
 A suffix `:N` keeps the **last** N characters of the value, for example
 `PC-{{serial:12}}`. N is 1 to 64. The first characters are the vendor part
@@ -170,6 +171,46 @@ are untrusted. Each value passes two independent layers:
    and a split of `]]>` inside CDATA. With the character set above both are
    no-ops. They exist so that a later token with a wider character set, or a
    mistake in the sanitiser, does not become an injection.
+
+#### `{{var:NAME}}`: values from the administrator
+
+Added on 2026-11-16, after v0.1.0-alpha. Until then `{{var:...}}` was left
+alone like every text in braces that is not a token.
+
+`{{var:NAME}}` is replaced with the value that was given for NAME when the
+client was armed: `kyro arm ... --set NAME=VALUE`. It is for what differs
+from machine to machine and cannot be derived from the machine: a computer
+name from an inventory list, a product key, the name of a user.
+
+- **NAME** is a lower-case letter followed by up to 31 lower-case letters,
+  digits or underscores. Anything else after `{{var:` is an error at
+  import. There is no `:N` suffix.
+- **The value** has 1 to 256 bytes of UTF-8 and only printable characters:
+  no line break, no tab, no other control character, and neither `{{` nor
+  `}}`, so that a value can never read as a token. Everything else is
+  allowed, and is written as given.
+- **Escaping.** The value is escaped for the place it lands in: XML
+  escaping in text, a split of `]]>` inside CDATA. What the installed
+  system reads is the value as it was typed. Unlike the values from the
+  client, it is not reduced to letters and digits: it comes from the
+  administrator, who can write the whole answer file anyway. Where an
+  answer file puts a value into a command line, what the value contains is
+  part of that command.
+- **Arming checks the values.** Kyro refuses to arm a client unless a value
+  is given for every NAME the answer file uses, and refuses a value for a
+  NAME the answer file does not use, which is most likely a typing mistake.
+- **The bundle does not declare them.** Kyro finds the names in the answer
+  file, shows them at import, and stores them in the profile's metadata as
+  `variables`. The bundle format is unchanged.
+- **Lifetime.** The values are stored with the arming, in the record of the
+  client. They are deleted when the installation ends, however it ends:
+  callback, failure, timeout, an arming that runs out, or `kyro disarm`.
+  Arming again needs them again. Status page, JSON and `kyro clients` show
+  the names of the values, never the values. They are not written to the
+  log.
+
+A generator that wants a per-machine field writes `{{var:NAME}}` where the
+value belongs and tells its user to arm with `--set NAME=...`.
 
 If a profile uses a token and the client supplies no usable value, Kyro
 refuses to serve the answer file and logs why. iPXE then fails on that menu
@@ -212,6 +253,9 @@ that an answer file decides. Decided by the maintainer on 2026-11-13.
 - If the answer file sets `ComputerName`, with or without a token, Windows
   uses that name. `PC-{{serial}}` is the way to give every machine a
   predictable name without one profile per machine.
+- A name that cannot be derived from the machine, such as one from an
+  inventory list, is `{{var:hostname}}` in the answer file and
+  `kyro arm --set hostname=...` when arming.
 - If the answer file does not set it, Windows Setup picks a name of its own.
   Kyro does not add one.
 - Whatever else the answer file does is passed through unchanged. That
@@ -326,3 +370,4 @@ Settled since this record was proposed: this record is the specification
 of the bundle format, and the website follows it; `{{callback_url}}` stays;
 `:N` keeps the last N characters,
 and a MAC address is written as 12 hexadecimal digits in upper case.
+`{{var:NAME}}` was added on 2026-11-16.

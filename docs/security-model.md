@@ -93,6 +93,19 @@ These are protections against mistakes, not against attackers.
 - **A damaged record stops the service from answering boots**, rather than
   guessing a state.
 
+## Values given when arming
+
+`kyro arm --set NAME=VALUE` stores the value in the record of the client,
+in `<data_dir>/state`, readable by root and the service. It can be a
+secret, such as a product key.
+
+- It is deleted from the record when the installation ends, however it
+  ends, and when the arming is taken back or runs out.
+- Status page, JSON, `kyro clients` and the log show its name, never the
+  value. The command line it was typed on is in the shell's history.
+- During the installation it is part of the answer file, which travels
+  over plain HTTP like the rest of it.
+
 ## Driver packs
 
 A driver is code that runs with full rights, in Windows PE and in the
