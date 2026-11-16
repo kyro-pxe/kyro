@@ -30,6 +30,13 @@ UNSIGNED="${KYRO_E2E_UNSIGNED:-0}"
 # 1 records the screen of the installed machine in real time and makes a
 # video of it. Needs ffmpeg and Python with Pillow.
 RECORD="${KYRO_E2E_RECORD:-0}"
+# A directory whose subdirectories are driver packs. Each is added with
+# 'kyro driver add', and every installation is given all of them.
+DRIVERS="${KYRO_E2E_DRIVERS:-}"
+# 1 gives the machines a virtio network card and a virtio SCSI controller.
+# Windows has drivers for neither, so the installation only works with the
+# virtio drivers in KYRO_E2E_DRIVERS.
+VIRTIO="${KYRO_E2E_VIRTIO:-0}"
 OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.secboot.fd}"
 if [ "$SECURE_BOOT" = 1 ]; then
 	# Variables with Microsoft's keys enrolled: Secure Boot is on.
@@ -110,8 +117,8 @@ CONF
 	local group dir
 	id "$SVC_USER" >/dev/null 2>&1 || die "there is no user $SVC_USER (set KYRO_E2E_USER)"
 	group=$(id -gn "$SVC_USER")
-	mkdir -p "$WORK"/data/{images,profiles,boot,state}
-	for dir in "$WORK/data" "$WORK"/data/{images,profiles,boot}; do
+	mkdir -p "$WORK"/data/{images,profiles,drivers,boot,state}
+	for dir in "$WORK/data" "$WORK"/data/{images,profiles,drivers,boot}; do
 		chown -R "root:$group" "$dir"
 		chmod 0750 "$dir"
 	done
@@ -129,6 +136,19 @@ CONF
 		"$KYRO" image add "$ISO" --name win11 --link
 	fi
 	"$KYRO" profile import --example --replace >"$WORK/log/profile-import.log"
+	# Exactly the driver packs of this run.
+	local pack
+	for pack in $("$KYRO" driver list | awk 'NR > 1 && $3 ~ /^[0-9]+$/ { print $1 }'); do
+		"$KYRO" driver remove "$pack" >/dev/null
+	done
+	: >"$WORK/log/driver-add.log"
+	if [ -n "$DRIVERS" ]; then
+		[ -d "$DRIVERS" ] || die "KYRO_E2E_DRIVERS: $DRIVERS is not a directory"
+		for pack in "$DRIVERS"/*/; do
+			"$KYRO" driver add "$pack" >>"$WORK/log/driver-add.log"
+		done
+		say "driver packs: $("$KYRO" driver list | awk 'NR > 1 && $3 ~ /^[0-9]+$/ { printf "%s ", $1 }')"
+	fi
 	# Start from a clean slate: no client is known.
 	rm -rf "${WORK:?}/data/state"
 	mkdir "$WORK/data/state"
@@ -221,6 +241,13 @@ cmd_vm_start() { # number [fresh]
 		qemu-img create -q -f qcow2 "$run/disk.qcow2" 64G
 		cp "$OVMF_VARS" "$run/vars.fd"
 	fi
+	# Hardware that Windows has drivers for, or hardware that it has none
+	# for.
+	local nic=e1000e disk=(-device "ahci,id=ahci0" -device "ide-hd,drive=d0,bus=ahci0.0,bootindex=2")
+	if [ "$VIRTIO" = 1 ]; then
+		nic=virtio-net-pci
+		disk=(-device "virtio-scsi-pci,id=scsi0" -device "scsi-hd,drive=d0,bus=scsi0.0,bootindex=2")
+	fi
 	swtpm socket --tpm2 --tpmstate dir="$run/tpm" \
 		--ctrl type=unixio,path="$run/swtpm.sock" --daemon
 	nsx qemu-system-x86_64 -name "kyro-e2e-$vm" \
@@ -229,9 +256,9 @@ cmd_vm_start() { # number [fresh]
 		-drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
 		-drive if=pflash,format=raw,file="$run/vars.fd" \
 		-drive file="$run/disk.qcow2",if=none,id=d0,format=qcow2,discard=unmap \
-		-device ahci,id=ahci0 -device ide-hd,drive=d0,bus=ahci0.0,bootindex=2 \
+		"${disk[@]}" \
 		-netdev tap,id=n0,ifname="tap$vm",script=no,downscript=no \
-		-device e1000e,netdev=n0,mac="$(vm_mac "$vm")",bootindex=1 \
+		-device "$nic",netdev=n0,mac="$(vm_mac "$vm")",bootindex=1 \
 		-chardev "socket,id=chrtpm,path=$run/swtpm.sock" \
 		-tpmdev emulator,id=tpm0,chardev=chrtpm -device tpm-crb,tpmdev=tpm0 \
 		-device qemu-xhci -device usb-tablet \
@@ -277,6 +304,23 @@ boots() {
 # the given number of times.
 booted_since() {
 	[ "$(boots "$1")" -gt "$2" ] && echo yes
+}
+
+# driver_store prints the names of the driver packages in the driver store
+# of the Windows that is installed on the disk of machine 0. The machine
+# must be stopped. The disk is opened read-only.
+driver_store() {
+	local dev=/dev/nbd0 part
+	modprobe nbd max_part=16
+	qemu-nbd --read-only --connect="$dev" --format=qcow2 "$WORK/vm0/disk.qcow2"
+	udevadm settle 2>/dev/null || sleep 2
+	# The Windows partition is the largest one.
+	part=$(lsblk -bnro NAME,SIZE "$dev" | awk '$1 ~ /p[0-9]+$/' | sort -k2 -n | tail -1 | cut -d' ' -f1)
+	if [ -n "$part" ]; then
+		7z l "/dev/$part" 2>/dev/null | grep -i -o 'DriverStore[/\\]FileRepository[/\\][^/\\]*' |
+			sed 's/.*[/\\]//' | tr '[:upper:]' '[:lower:]' | sort -u
+	fi
+	qemu-nbd --disconnect "$dev" >/dev/null
 }
 
 # count prints how many lines of Kyro's log contain a text.
@@ -327,6 +371,8 @@ cmd_run() {
 	caption="Secure Boot on"
 	[ "$SECURE_BOOT" = 1 ] || caption="Secure Boot off"
 	[ "$UNSIGNED" = 1 ] && caption="$caption, unsigned iPXE"
+	[ "$VIRTIO" = 1 ] && caption="$caption, virtio network card and disk controller"
+	[ -n "$DRIVERS" ] && caption="$caption, with driver packs"
 	cmd_up
 	mkdir -p "$results"
 
@@ -397,6 +443,10 @@ cmd_run() {
 		recorder=$!
 	fi
 	wait_for 300 installing "machine 0 is given the installer" state 0
+	if [ -n "$DRIVERS" ]; then
+		wait_for 300 1 "machine 0 fetches the driver packs" count 'boot: driver packs sent'
+		say "PASS: the driver packs were handed out with the installer"
+	fi
 	say "installation started; waiting up to $((INSTALL_TIMEOUT / 60)) minutes for the callback"
 	wait_for "$INSTALL_TIMEOUT" provisioned "the installed system reports back" state 0
 	say "provisioned after $((($(date +%s) - t0) / 60)) minutes"
@@ -440,9 +490,20 @@ cmd_run() {
 	expect "the installer was still handed out exactly once" "$(count 'installation started')" 1
 	expect "its disk is still empty" "$([ "$(stat -c %s "$WORK/vm1/disk.qcow2")" -lt 2000000 ] && echo yes)" yes
 	cmd_vm_stop 1
+	cmd_vm_stop 0 || true
+	if [ -n "$DRIVERS" ]; then
+		say "--- 6. the driver packs are in the installed Windows"
+		local inf store
+		driver_store >"$results/driver-store.txt"
+		expect "the driver store of the installed Windows can be read" \
+			"$([ "$(wc -l <"$results/driver-store.txt")" -gt 50 ] && echo yes)" yes
+		while read -r inf; do
+			store=$(grep -c "^$inf.inf_amd64_" "$results/driver-store.txt" || true)
+			expect "$inf.inf is in the driver store of the installed Windows" "$([ "$store" -ge 1 ] && echo yes)" yes
+		done < <(find "$DRIVERS" -iname '*.inf' -printf '%f\n' | sed 's/\.[iI][nN][fF]$//' | tr '[:upper:]' '[:lower:]' | sort -u)
+	fi
 	# The disk of a passed run explains nothing and takes about 15 GB.
 	# After a failure it stays, to be looked at.
-	cmd_vm_stop 0 || true
 	rm -f -- "${WORK:?}/vm0/disk.qcow2" "${WORK:?}/vm1/disk.qcow2"
 	if [ "$RECORD" = 1 ]; then
 		# Only the recorder: Kyro is a background job of this shell too.

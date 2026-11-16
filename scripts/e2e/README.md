@@ -64,6 +64,8 @@ non-zero exit status.
 | `KYRO_E2E_SECURE_BOOT` | `1` | `1`: the machines' firmware enforces Secure Boot. `0`: it has Secure Boot off. Kyro hands out the signed shim and iPXE either way, as it does by default. |
 | `KYRO_E2E_UNSIGNED` | `0` | `1` sets `secure_boot: false` in Kyro, which then hands out the unsigned iPXE. Only with `KYRO_E2E_SECURE_BOOT=0`. |
 | `KYRO_E2E_RECORD` | `0` | `1` records the screen of the installed machine in real time and writes `install.mp4` into the results: nothing skipped, nothing sped up, a clock in the corner. Needs `ffmpeg` and Python with Pillow. |
+| `KYRO_E2E_DRIVERS` | empty | A directory whose subdirectories are driver packs. Each is added with `kyro driver add`; the test then also checks that the packs were handed out and, after the installation, that their drivers are in the driver store of the installed Windows (needs `qemu-nbd`, the `nbd` kernel module and `7z`). |
+| `KYRO_E2E_VIRTIO` | `0` | `1` gives the machines a virtio network card and a virtio SCSI controller. Windows has drivers for neither, so this only passes with the virtio drivers in `KYRO_E2E_DRIVERS`. |
 | `OVMF_CODE`, `OVMF_VARS` | Debian's paths | The firmware |
 
 ## Secure Boot
@@ -74,6 +76,24 @@ a machine against a Kyro with `secure_boot: false`: the firmware must refuse
 the unsigned iPXE, the machine must never reach Kyro, and `kyro doctor` must
 warn about the setting. Only then does it go on with Kyro's default, and it
 checks that the machines came through the signed shim and the signed iPXE.
+
+## Drivers
+
+To test driver packs, give the machines hardware that Windows has no driver
+for, and the drivers for it:
+
+```sh
+kyro driver fetch virtio        # on any machine with Kyro, then copy
+                                # <data_dir>/drivers/virtio/files to packs/virtio
+sudo KYRO_E2E_ISO=... KYRO_E2E_VIRTIO=1 KYRO_E2E_DRIVERS=/path/to/packs make e2e
+```
+
+Without the drivers this run cannot pass. That was tried: Windows PE had
+no network, and the start script stopped with "could not connect". With them, the test adds a step
+6 that opens the disk of the installed machine read-only and looks for
+each `.inf` of the packs in the driver store of the installed Windows.
+
+The drivers are not part of this repository.
 
 ## Results
 
