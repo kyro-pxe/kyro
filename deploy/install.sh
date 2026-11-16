@@ -36,6 +36,10 @@ action=install
 assume_yes=0
 start=1
 bootfiles=1
+# yes: fetch Intel's storage driver, the license is accepted. no: do not.
+# ask: ask if someone can answer, and skip it otherwise.
+intel_rst=${KYRO_ACCEPT_INTEL_LICENSE:-ask}
+INTEL_LICENSE_PAGE=https://www.intel.com/content/www/us/en/download/930427/
 tmp=""
 
 usage() {
@@ -70,6 +74,15 @@ Behaviour:
   --no-bootfiles       Do not fetch iPXE and wimboot now.
   --bootfiles-from DIR Take iPXE and wimboot from DIR; they are still checked
                        against the checksums compiled into Kyro.
+  --accept-intel-license
+                       Download Intel's storage driver (Intel RST/VMD) from
+                       Intel and give it to every installation. Intel lets
+                       nobody download it without accepting the Intel
+                       Software License Agreement; this option says that you
+                       have read and accept it:
+                       https://www.intel.com/content/www/us/en/download/930427/
+                       Run from a terminal, the installer asks instead.
+  --no-drivers         Do not download Intel's storage driver, and do not ask.
 
 Removing:
   --uninstall          Remove the program and the service. Keep
@@ -81,7 +94,8 @@ Removing:
 Each option has an environment variable: KYRO_VERSION, KYRO_TARBALL,
 KYRO_CHECKSUMS, KYRO_SHA256, KYRO_INTERFACE, KYRO_ADDRESS, KYRO_DHCP_MODE,
 KYRO_SECURE_BOOT (true or false),
-KYRO_BOOTFILES_FROM. An existing /etc/kyro/config.yaml is never changed.
+KYRO_BOOTFILES_FROM, KYRO_ACCEPT_INTEL_LICENSE (yes or no). An existing
+/etc/kyro/config.yaml is never changed.
 EOF
 }
 
@@ -153,6 +167,8 @@ while [ $# -gt 0 ]; do
 	-y | --yes) assume_yes=1 ;;
 	--no-start) start=0 ;;
 	--no-bootfiles) bootfiles=0 ;;
+	--accept-intel-license) intel_rst=yes ;;
+	--no-drivers) intel_rst=no ;;
 	--uninstall) action=uninstall ;;
 	--purge) action=purge ;;
 	-h | --help)
@@ -167,6 +183,10 @@ done
 case "$secure_boot" in
 true | false) ;;
 *) die "KYRO_SECURE_BOOT=$secure_boot: use true or false" ;;
+esac
+case "$intel_rst" in
+yes | no | ask) ;;
+*) die "KYRO_ACCEPT_INTEL_LICENSE=$intel_rst: use yes or no" ;;
 esac
 case "$dhcp_mode" in
 proxy | off) ;;
@@ -563,6 +583,46 @@ do_install() {
 		fi
 	else
 		say "Skipped iPXE and wimboot. Run 'kyro bootfiles fetch' before the first boot."
+	fi
+
+	# Intel's storage driver. Many current Intel machines ship with "VMD"
+	# switched on, and Windows Setup finds no disk on them without it. It
+	# is Intel's software under Intel's license, so it is fetched only for
+	# someone who accepts that license: by answering the question, or with
+	# --accept-intel-license.
+	if "$BIN" driver list --config "$CONFIG" 2>/dev/null | grep -q '^intel-rst '; then
+		say "Intel's storage driver is stored already (kyro driver list)."
+	else
+		if [ "$intel_rst" = ask ] && [ "$interactive" = 1 ]; then
+			say ""
+			say "Intel's storage driver (Intel RST/VMD)"
+			say "  Many current Intel machines ship with \"VMD\" switched on. Windows Setup"
+			say "  finds no disk on them without this driver. Kyro can download it from"
+			say "  Intel now and give it to every installation."
+			say "  Intel offers it under the Intel Software License Agreement:"
+			say "    $INTEL_LICENSE_PAGE"
+			if confirm "Download it and accept that license?" y; then
+				intel_rst=yes
+			else
+				intel_rst=no
+			fi
+		fi
+		case "$intel_rst" in
+		yes)
+			"$BIN" driver fetch intel-rst --accept-license --config "$CONFIG" ||
+				warn "Intel's storage driver could not be fetched. Kyro works without it; machines with VMD switched on will find no disk. Try again with 'kyro driver fetch intel-rst --accept-license'."
+			;;
+		no)
+			say "Skipped Intel's storage driver. To get it later: kyro driver fetch intel-rst --accept-license"
+			;;
+		*)
+			say "Skipped Intel's storage driver: nobody was there to accept Intel's license."
+			say "  Machines with Intel VMD switched on find no disk without it. To get it,"
+			say "  read $INTEL_LICENSE_PAGE"
+			say "  and run: kyro driver fetch intel-rst --accept-license"
+			say "  (or run install.sh with --accept-intel-license)."
+			;;
+		esac
 	fi
 
 	# A machine without any trace of systemd gets no unit file.

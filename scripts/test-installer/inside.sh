@@ -104,6 +104,14 @@ sh "$INSTALL" --yes --tarball "$TARBALL" --checksums "$SUMS" \
 	}
 pass "non-interactive installation"
 
+# Intel's driver needs someone who accepts Intel's license. Nobody did, so
+# nothing of Intel's was downloaded, and the installer said how to get it.
+grep -q "Skipped Intel's storage driver: nobody was there to accept Intel's license" /tmp/install1.log ||
+	fail "the installer did not say that it skipped Intel's driver"
+grep -q "kyro driver fetch intel-rst --accept-license" /tmp/install1.log || fail "the installer did not say how to get Intel's driver"
+kyro driver list | grep -q "No driver packs" || fail "a driver pack was stored although nobody accepted a license"
+pass "without acceptance of Intel's license, Intel's driver is not downloaded"
+
 kyro version >/dev/null || fail "kyro does not run"
 id kyro >/dev/null 2>&1 || fail "no user kyro"
 case "$(getent passwd kyro | cut -d: -f7)" in
