@@ -28,6 +28,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -48,8 +49,9 @@ type span struct {
 type token struct {
 	start, end int
 	name       string
-	keep       int  // N of {{name:N}}, 0 if there is none
-	cdata      bool // inside a CDATA section
+	keep       int    // N of {{name:N}}, 0 if there is none
+	variable   string // NAME of {{var:NAME}}
+	cdata      bool   // inside a CDATA section
 }
 
 // scanned is what one pass over an answer file finds.
@@ -63,8 +65,42 @@ type scanned struct {
 }
 
 // The tokens Kyro replaces. The first three come from the booting machine,
-// the last one from Kyro itself.
-var tokenNames = map[string]bool{"mac": true, "serial": true, "uuid": true, "callback_url": true}
+// callback_url from Kyro itself, and var from the administrator who armed
+// the client: {{var:NAME}} is the value given with 'kyro arm --set
+// NAME=...'.
+var tokenNames = map[string]bool{"mac": true, "serial": true, "uuid": true, "callback_url": true, "var": true}
+
+var variableRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
+
+// ValidVariable reports whether s can be the NAME of {{var:NAME}}.
+func ValidVariable(s string) bool { return variableRE.MatchString(s) }
+
+// MaxValue is the longest value of a variable, in bytes.
+const MaxValue = 256
+
+// CheckValue says whether a string can be the value of a variable: not
+// empty, not longer than MaxValue, and made of printable characters. Line
+// breaks and other control characters are refused, and so are double
+// braces, so that a value can never read as a token. Everything else is
+// written into the answer file as it is, escaped for XML.
+func CheckValue(v string) error {
+	switch {
+	case v == "":
+		return errors.New("the value is empty")
+	case len(v) > MaxValue:
+		return fmt.Errorf("the value is longer than %d bytes", MaxValue)
+	case !utf8.ValidString(v):
+		return errors.New("the value is not valid UTF-8")
+	case strings.Contains(v, "{{") || strings.Contains(v, "}}"):
+		return errors.New("the value contains {{ or }}, which Kyro uses for tokens")
+	}
+	for _, r := range v {
+		if !unicode.IsPrint(r) {
+			return errors.New("the value has a line break or another character that cannot be printed")
+		}
+	}
+	return nil
+}
 
 var (
 	// Anything of the form {{...}} without braces inside.
@@ -186,7 +222,12 @@ func scan(data []byte) (*scanned, error) {
 			continue
 		}
 		t := token{start: loc[0], end: loc[1], name: m[1]}
-		if strings.Contains(raw, ":") {
+		if m[1] == "var" {
+			if !ValidVariable(m[2]) {
+				return nil, fmt.Errorf("%s: after {{var: comes the name of a value: a lower-case letter, then up to 31 lower-case letters, digits or underscores", clean(raw))
+			}
+			t.variable = m[2]
+		} else if strings.Contains(raw, ":") {
 			n, err := strconv.Atoi(m[2])
 			if err != nil || n < 1 || n > 64 || m[1] == "callback_url" || strconv.Itoa(n) != m[2] {
 				return nil, fmt.Errorf("%s: the number after the colon must be 1 to 64, and {{callback_url}} takes none", clean(raw))
@@ -217,6 +258,9 @@ type Values struct {
 	UUID        string
 	Serial      string
 	CallbackURL string
+	// Vars are the values of {{var:NAME}}, given by the administrator who
+	// armed the client.
+	Vars map[string]string
 }
 
 // ErrMissingValue means that an answer file uses a token for which the
@@ -269,8 +313,18 @@ func Render(data []byte, v Values) ([]byte, error) {
 	var out bytes.Buffer
 	pos := 0
 	for _, t := range res.tokens {
-		val := v.value(t.name)
-		if val == "" {
+		var val string
+		if t.name == "var" {
+			val = v.Vars[t.variable]
+			if val == "" {
+				return nil, fmt.Errorf("%w: the answer file uses {{var:%s}}, and the client was armed without a value for it (kyro arm --set %s=...)", ErrMissingValue, t.variable, t.variable)
+			}
+			// Checked when the client was armed, and again here: the
+			// record could have been changed since.
+			if err := CheckValue(val); err != nil {
+				return nil, fmt.Errorf("the value of {{var:%s}} cannot be used: %v", t.variable, err)
+			}
+		} else if val = v.value(t.name); val == "" {
 			return nil, fmt.Errorf("%w: the answer file uses {{%s}} and the client sent none that can be used", ErrMissingValue, t.name)
 		}
 		// {{name:N}} keeps the last N characters. The first ones are the
@@ -289,6 +343,29 @@ func Render(data []byte, v Values) ([]byte, error) {
 	}
 	out.Write(data[pos:])
 	return out.Bytes(), nil
+}
+
+// Variables returns the names of the values that an answer file wants from
+// the administrator: the NAME of every {{var:NAME}}, sorted.
+func Variables(data []byte) ([]string, error) {
+	res, err := scan(data)
+	if err != nil {
+		return nil, err
+	}
+	return res.variables(), nil
+}
+
+func (res *scanned) variables() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, t := range res.tokens {
+		if t.name == "var" && !seen[t.variable] {
+			seen[t.variable] = true
+			out = append(out, t.variable)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // clean makes a string from an untrusted file safe to print: control

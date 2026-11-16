@@ -518,12 +518,16 @@ func FuzzRender(f *testing.F) {
 	f.Add(answer(`<a><![CDATA[{{serial}}]]></a>`), "", "", "a]]>b")
 	f.Add(answer(`<a>{{callback_url}}{{mac:1}}{{mac:64}}</a>`), "525400770001", "", "-")
 	f.Add(string(example.Bundle()), "525400770001", "", "X")
+	f.Add(answer(`<a>{{var:x}}</a><b><![CDATA[{{var:name}} {{var:x}}]]></b><c d="{{var:x}}"/>`), "525400770001", "", `</a><x> & "q" ]]> <![CDATA[ { } ü`)
 	f.Fuzz(func(t *testing.T, doc, mac, uuid, serial string) {
 		before, err := structure([]byte(doc))
 		if err != nil {
 			return
 		}
-		v := profiles.Values{MAC: mac, UUID: uuid, Serial: serial, CallbackURL: "http://192.168.77.1/api/v1/callback/0123456789abcdef0123456789abcdef"}
+		// The same arbitrary string is also what an administrator gave
+		// for two variables. Those values keep all their characters.
+		v := profiles.Values{MAC: mac, UUID: uuid, Serial: serial, CallbackURL: "http://192.168.77.1/api/v1/callback/0123456789abcdef0123456789abcdef",
+			Vars: map[string]string{"x": serial, "name": serial}}
 		out, err := profiles.Render([]byte(doc), v)
 		if err != nil {
 			return
@@ -572,4 +576,75 @@ func FuzzParse(f *testing.F) {
 			t.Fatalf("an accepted file does not render: %v", err)
 		}
 	})
+}
+
+// TestVariables: {{var:NAME}} is replaced with the value that the
+// administrator gave for NAME when arming the client.
+func TestVariables(t *testing.T) {
+	file := answer(`<a>{{var:hostname}}</a><b><![CDATA[net user {{var:user}} {{var:hostname}}]]></b><c d="{{var:attr}}">{{mac}}</c>`)
+	names, err := profiles.Variables([]byte(file))
+	if err != nil || strings.Join(names, ",") != "hostname,user" {
+		t.Fatalf("Variables = %v, %v", names, err)
+	}
+	imp, err := profiles.Parse([]byte(file), "vars")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(imp.Profile.Variables, ",") != "hostname,user" || strings.Join(imp.Profile.Tokens, ",") != "mac" {
+		t.Errorf("profile: variables %v, tokens %v", imp.Profile.Variables, imp.Profile.Tokens)
+	}
+
+	v := profiles.Values{MAC: "52:54:00:77:00:01", Vars: map[string]string{
+		"hostname": "PC-014",
+		// What XML and CDATA would trip over is written so that the
+		// installed system reads the value as it was given.
+		"user": `a&b <c> "d" ]]> ü`,
+	}}
+	got, err := profiles.Render([]byte(file), v)
+	want := answer(`<a>PC-014</a><b><![CDATA[net user a&b <c> "d" ]]]]><![CDATA[> ü PC-014]]></b><c d="{{var:attr}}">525400770001</c>`)
+	if err != nil || string(got) != want {
+		t.Errorf("Render: %v\n got %s\nwant %s", err, got, want)
+	}
+	inText, err := profiles.Render([]byte(answer(`<a>{{var:user}}</a>`)), v)
+	if err != nil || string(inText) != answer(`<a>a&amp;b &lt;c&gt; &#34;d&#34; ]]&gt; ü</a>`) {
+		t.Errorf("a value in text: %v\n%s", err, inText)
+	}
+	// What comes out is still an answer file.
+	if _, err := profiles.Parse(got, "again"); err != nil {
+		t.Errorf("the rendered file is not well-formed any more: %v", err)
+	}
+
+	// A value that is missing stops the rendering, and the error says how
+	// to give it.
+	_, err = profiles.Render([]byte(file), profiles.Values{MAC: "52:54:00:77:00:01", Vars: map[string]string{"hostname": "PC-014"}})
+	if !errors.Is(err, profiles.ErrMissingValue) || !strings.Contains(err.Error(), "--set user=") {
+		t.Errorf("a missing value: %v", err)
+	}
+	// So does a value that should never have been stored.
+	v.Vars["hostname"] = "two\nlines"
+	if _, err := profiles.Render([]byte(file), v); err == nil || !strings.Contains(err.Error(), "{{var:hostname}} cannot be used") {
+		t.Errorf("a value with a line break: %v", err)
+	}
+
+	for _, bad := range []string{"{{var}}", "{{var:}}", "{{var:Hostname}}", "{{var:1st}}", "{{var:a-b}}", "{{var:a b}}", "{{var:a:5}}", "{{var:" + strings.Repeat("a", 33) + "}}"} {
+		if _, err := profiles.Parse([]byte(answer("<a>"+bad+"</a>")), "bad"); err == nil || !strings.Contains(err.Error(), "after {{var: comes the name of a value") {
+			t.Errorf("%s: %v", bad, err)
+		}
+	}
+	if !profiles.ValidVariable("product_key2") || profiles.ValidVariable("") || profiles.ValidVariable("_x") {
+		t.Error("ValidVariable")
+	}
+}
+
+func TestCheckValue(t *testing.T) {
+	for _, good := range []string{"{single} braces", "PC-014", "XXXXX-XXXXX-XXXXX-XXXXX-XXXXX", "Lukas Müller", `a&b<c>"d"`, "日本", strings.Repeat("a", profiles.MaxValue)} {
+		if err := profiles.CheckValue(good); err != nil {
+			t.Errorf("%q: %v", good, err)
+		}
+	}
+	for _, bad := range []string{"", "a\nb", "a\r", "a\tb", "a\x00b", "a\x7f", "\xff\xfe", strings.Repeat("a", profiles.MaxValue+1), "a b", "{{mac}}", "a}}b", "{{var:x}}"} {
+		if err := profiles.CheckValue(bad); err == nil {
+			t.Errorf("%q was accepted", bad)
+		}
+	}
 }

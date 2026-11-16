@@ -85,7 +85,10 @@ type Profile struct {
 	Warnings      []string `json:"warnings,omitempty"`
 	WindowsBuilds []string `json:"windows_builds,omitempty"`
 	// Tokens are the tokens the answer file uses.
-	Tokens     []string  `json:"tokens,omitempty"`
+	Tokens []string `json:"tokens,omitempty"`
+	// Variables are the values the answer file wants for each client from
+	// whoever arms it: the NAME of every {{var:NAME}}.
+	Variables  []string  `json:"variables,omitempty"`
 	SHA256     string    `json:"sha256"`
 	ImportedAt time.Time `json:"imported_at"`
 }
@@ -188,8 +191,11 @@ func Parse(data []byte, name string) (*Import, error) {
 	imp.Profile.DetectedWipe = res.wipes
 	used := map[string]bool{}
 	for _, t := range res.tokens {
-		used[t.name] = true
+		if t.name != "var" {
+			used[t.name] = true
+		}
 	}
+	imp.Profile.Variables = res.variables()
 	for n := range used {
 		imp.Profile.Tokens = append(imp.Profile.Tokens, n)
 	}
