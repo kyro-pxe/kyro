@@ -17,7 +17,7 @@ OVMF) with one ISO, the Windows 11 Enterprise evaluation. Nothing was tried
 on physical hardware.
 
 The end-to-end test (`make e2e`, [scripts/e2e](../scripts/e2e/README.md)) is
-referred to as "e2e" below. It passed six times:
+referred to as "e2e" below. It passed seven times:
 
 | Date | Variant | Time |
 | ---- | ------- | ---- |
@@ -27,6 +27,7 @@ referred to as "e2e" below. It passed six times:
 | 2026-11-14 | Secure Boot off, Kyro unprivileged, with screen recording | Not comparable: the script waited at its end because of a defect in the recorder, fixed since |
 | 2026-11-14 | Secure Boot enforced, Kyro's defaults (signed shim and iPXE), recorded in real time | 31 minutes |
 | 2026-11-14 | Secure Boot off on the machines, Kyro's defaults (signed shim and iPXE) | 27 minutes |
+| 2026-11-16 | Secure Boot enforced, Kyro's defaults, with the step for an arming that runs out | 33 minutes |
 
 The first, second and fourth run used the unsigned iPXE, which is now what
 `secure_boot: false` gives. The last two are what Kyro does by default.
@@ -89,7 +90,7 @@ The first, second and fourth run used the unsigned iPXE, which is now what
 | `--confirm-wipe` for profiles that wipe a disk | tested | Unit tests; e2e. |
 | Callback from the installed system | tested | Unit and fuzz tests; e2e. Rate and size limited. Not authentication. |
 | `failed` after `install_timeout` | tested | Unit tests only. |
-| An arming runs out (`arm_timeout`, `kyro arm --expires`) | tested | Not in v0.1.0-alpha. Unit and fuzz tests only. [ADR 0006](adr/0006-arming-expires.md). |
+| An arming runs out (`arm_timeout`, `kyro arm --expires`) | tested | Not in v0.1.0-alpha. Unit and fuzz tests; e2e: a second machine was armed for two minutes, booted half an hour later, was sent to its disk, and its disk stayed empty. [ADR 0006](adr/0006-arming-expires.md). |
 | Menu for unknown clients (`unknown_clients: menu`) | tested | Off by default. Unit tests only; shows identifiers and boots the disk. |
 | Read-only status page and JSON (`/api/v1/clients`) | tested | Unit tests. Listens on `127.0.0.1:8080` by default. |
 

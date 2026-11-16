@@ -132,7 +132,7 @@ again: arm it again.
 ## Known limitations
 
 - **Tested in virtual machines only.** One ISO (Windows 11 Enterprise
-  evaluation), QEMU with OVMF, six full runs. No physical hardware, no other
+  evaluation), QEMU with OVMF, seven full runs. No physical hardware, no other
   editions or languages.
 - **Secure Boot works in virtual machines; real hardware is untried.** By
   default Kyro hands UEFI clients the shim and the iPXE that the iPXE
