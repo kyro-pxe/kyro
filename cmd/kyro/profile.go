@@ -64,6 +64,9 @@ func printProfile(w io.Writer, p profiles.Profile) {
 	if len(p.Tokens) > 0 {
 		fmt.Fprintf(w, "  Filled in per client: {{%s}}\n", strings.Join(p.Tokens, "}}, {{"))
 	}
+	if len(p.Variables) > 0 {
+		fmt.Fprintf(w, "  Needs a value per client when arming: --set %s=...\n", strings.Join(p.Variables, "=... --set "))
+	}
 	if p.WipesDisk() {
 		fmt.Fprintf(w, "  DISKS: treated as wiping a disk, because %s.\n", p.WipeReason())
 		fmt.Fprintln(w, "         Arming a client for it needs --confirm-wipe.")

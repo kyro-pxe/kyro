@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/kyro-pxe/kyro/internal/state"
@@ -30,12 +31,14 @@ import (
 
 // ClientView is what the status page and the API show of a client. The
 // token of an installation is left out: it opens the files of that
-// installation.
+// installation. Of the values of an arming only the names are shown: the
+// values can be secrets.
 type ClientView struct {
 	Client     string     `json:"client"`
 	State      string     `json:"state"`
 	Image      string     `json:"image,omitempty"`
 	Profile    string     `json:"profile,omitempty"`
+	Values     []string   `json:"values,omitempty"`
 	MAC        string     `json:"mac,omitempty"`
 	UUID       string     `json:"uuid,omitempty"`
 	Serial     string     `json:"serial,omitempty"`
@@ -65,6 +68,10 @@ func View(c state.Client) ClientView {
 		Stage: string(c.Stage), StageAt: c.StageAt, Restarts: c.Restarts,
 		Failure: c.Failure,
 	}
+	for name := range c.Values {
+		v.Values = append(v.Values, name)
+	}
+	sort.Strings(v.Values)
 	if c.State == state.Installing {
 		v.Progress = stageText(c.Stage)
 		if c.Stage == state.StageRestarted {

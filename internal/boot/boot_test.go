@@ -570,6 +570,70 @@ func TestReportsThatAreIgnored(t *testing.T) {
 	}
 }
 
+// TestValuesOfAnArming: what the administrator gave with --set reaches the
+// answer file of that installation, and nothing else.
+func TestValuesOfAnArming(t *testing.T) {
+	fx := newFixture(t)
+	imp, err := profiles.Parse([]byte(`{"bundle_version":0,"name":"office","wipes_disk":false,"answer_file":"<unattend xmlns=\"urn:schemas-microsoft-com:unattend\"><a>{{var:hostname}}</a><b><![CDATA[key {{var:product_key}}]]></b></unattend>"}`), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.svc.Profiles.Add(imp, false); err != nil {
+		t.Fatal(err)
+	}
+	key, _ := state.ParseKey(testMAC)
+	arm := func(values map[string]string) state.Client {
+		t.Helper()
+		c, err := fx.svc.State.Arm(key, state.Arming{Image: "win11", Profile: "office", Lifetime: time.Hour, Values: values}, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+
+	armed := arm(map[string]string{"hostname": "PC <014>", "product_key": "AAAAA-BBBBB"})
+	if body := fx.get(testQuery).Body.String(); !isInstall(body) {
+		t.Fatalf("boot:\n%s", body)
+	}
+	answer := fx.get("/i/" + armed.Token + "/autounattend.xml").Body.String()
+	if !strings.Contains(answer, "<a>PC &lt;014&gt;</a>") || !strings.Contains(answer, "<![CDATA[key AAAAA-BBBBB]]>") {
+		t.Errorf("answer file:\n%s", answer)
+	}
+
+	// The status shows which values there are, never what they are.
+	for _, target := range []string{"/", "/api/v1/clients"} {
+		rec := httptest.NewRecorder()
+		fx.svc.StatusHandler().ServeHTTP(rec, httptest.NewRequest("GET", target, nil))
+		if strings.Contains(rec.Body.String(), "AAAAA") || strings.Contains(rec.Body.String(), "014") {
+			t.Errorf("%s shows a value:\n%s", target, rec.Body.String())
+		}
+	}
+	rec := httptest.NewRecorder()
+	fx.svc.StatusHandler().ServeHTTP(rec, httptest.NewRequest("GET", "/api/v1/clients", nil))
+	if !strings.Contains(rec.Body.String(), `"values":["hostname","product_key"]`) {
+		t.Errorf("the client list does not name the values:\n%s", rec.Body.String())
+	}
+	if strings.Contains(fx.logLines.String(), "AAAAA") {
+		t.Errorf("a value is in the log:\n%s", fx.logLines.String())
+	}
+
+	// When the installation ends, they are gone.
+	fx.do("POST", "/api/v1/callback/"+armed.Token, "192.168.77.80", nil)
+	if c := fx.client(); c.State != state.Provisioned || len(c.Values) != 0 {
+		t.Errorf("after the callback: %s, %d values", c.State, len(c.Values))
+	}
+
+	// A profile that changed after arming and now wants a value that was
+	// not given: the installation does not start, and the record says why.
+	arm(map[string]string{"hostname": "PC-015"})
+	if body := fx.get(testQuery).Body.String(); !isLocal(body) {
+		t.Fatalf("boot without a needed value:\n%s", body)
+	}
+	if c := fx.client(); c.State != state.Failed || !strings.Contains(c.Failure, "{{var:product_key}}") || len(c.Values) != 0 {
+		t.Errorf("record: %s, %q, %d values", c.State, c.Failure, len(c.Values))
+	}
+}
+
 func TestInstallationFiles(t *testing.T) {
 	fx := newFixture(t)
 	armed := fx.arm(example.Name)

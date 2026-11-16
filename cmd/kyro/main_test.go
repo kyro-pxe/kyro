@@ -468,3 +468,59 @@ func TestClientsShowProgress(t *testing.T) {
 	out := c.ok("clients", "--json")
 	wants(t, out, `"stage": "restarted"`, `"restarts": 2`, `"progress": "Setup restarted the machine 2 times`)
 }
+
+// TestArmWithValues: a profile with {{var:NAME}} needs exactly those
+// values when a client is armed.
+func TestArmWithValues(t *testing.T) {
+	c := newCLI(t)
+	c.ok("image", "add", imagetest.Write(t), "--name", "win11")
+	dir := t.TempDir()
+	bundle := `{"bundle_version":0,"name":"office","wipes_disk":false,"answer_file":"<unattend xmlns=\"urn:schemas-microsoft-com:unattend\"><a>{{var:hostname}}</a><b>{{var:product_key}}</b></unattend>"}`
+	os.WriteFile(filepath.Join(dir, "office.json"), []byte(bundle), 0o644)
+	os.WriteFile(filepath.Join(dir, "plain.json"), []byte(`{"bundle_version":0,"name":"plain","wipes_disk":false,"answer_file":"<unattend xmlns=\"urn:schemas-microsoft-com:unattend\"/>"}`), 0o644)
+	wants(t, c.ok("profile", "import", filepath.Join(dir, "office.json")), "Needs a value per client when arming: --set hostname=... --set product_key=...")
+	c.ok("profile", "import", filepath.Join(dir, "plain.json"))
+	wants(t, c.ok("profile", "show", "office"), "--set hostname=... --set product_key=...")
+	mac := "52:54:00:77:00:01"
+	arm := func(extra ...string) []string {
+		return append([]string{"arm", mac, "--image", "win11", "--profile", "office"}, extra...)
+	}
+
+	for _, tt := range []struct {
+		args []string
+		want string
+	}{
+		{arm(), "needs a value for this machine: --set hostname=... --set product_key=..."},
+		{arm("--set", "hostname=PC-014"), "needs a value for this machine: --set product_key=..."},
+		{arm("--set", "hostname=PC-014", "--set", "product_key=X", "--set", "hostnmae=typo"), "does not use {{var:hostnmae}}; it uses hostname, product_key"},
+		{arm("--set", "hostname=PC-014", "--set", "hostname=PC-015", "--set", "product_key=X"), "hostname is given twice"},
+		{arm("--set", "hostname=", "--set", "product_key=X"), "the value is empty"},
+		{arm("--set", "hostname", "--set", "product_key=X"), "write NAME=VALUE"},
+		{arm("--set", "Hostname=x", "--set", "product_key=X"), "write NAME=VALUE"},
+		{arm("--set", "hostname=two\nlines", "--set", "product_key=X"), "line break"},
+		{[]string{"arm", mac, "--image", "win11", "--profile", "plain", "--set", "hostname=PC-014"}, "has no place for values"},
+	} {
+		wants(t, c.fails(2, tt.args...), tt.want)
+	}
+	wants(t, c.ok("clients"), "No clients yet")
+
+	out := c.ok(arm("--set", "hostname=PC-014", "--set", "product_key=AAAAA-BBBBB=CCCCC")...)
+	wants(t, out, "Armed:", "Values for this installation: hostname, product_key. They are deleted when it ends.")
+	// The values are in the record, with the "=" that one of them has,
+	// and nowhere in what the commands print.
+	raw, err := os.ReadFile(filepath.Join(c.data, "state", "mac-525400770001.json"))
+	if err != nil || !strings.Contains(string(raw), `"hostname": "PC-014"`) || !strings.Contains(string(raw), `"product_key": "AAAAA-BBBBB=CCCCC"`) {
+		t.Errorf("record: %v\n%s", err, raw)
+	}
+	listed := c.ok("clients") + c.ok("clients", "--json")
+	if strings.Contains(out+listed, "AAAAA") || strings.Contains(out+listed, "PC-014") {
+		t.Errorf("a value was printed:\n%s\n%s", out, listed)
+	}
+	wants(t, listed, `"hostname"`, `"product_key"`)
+
+	// Taking the arming back deletes them.
+	c.ok("disarm", mac)
+	if raw, err := os.ReadFile(filepath.Join(c.data, "state", "mac-525400770001.json")); err == nil && strings.Contains(string(raw), "AAAAA") {
+		t.Errorf("the value is still in the record after disarm:\n%s", raw)
+	}
+}

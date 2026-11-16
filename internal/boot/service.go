@@ -248,6 +248,7 @@ func (s *Service) answerFile(c state.Client) ([]byte, error) {
 		UUID:        c.Seen.UUID,
 		Serial:      c.Seen.Serial,
 		CallbackURL: s.CallbackURL(c.Token),
+		Vars:        c.Values,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("profile %s: %w", c.Profile, err)

@@ -45,6 +45,11 @@ func (e *env) arm(args []string) error {
 client has been given the installer, it boots from its disk again until it
 is armed again.
 
+If the answer file of the profile has places for values of this one
+machine, written {{var:NAME}}, give each with --set NAME=VALUE. Kyro
+refuses to arm if one is missing, or if one is given that the profile does
+not use. The values are kept until the installation ends and then deleted.
+
 An arming does not last for ever. If the client has not booted from the
 network within the time of --expires (default: arm_timeout in the
 configuration, 24h unless changed), it is not installed and shows as
@@ -59,6 +64,21 @@ server, with what they reported.
 	confirmWipe := c.Bool("confirm-wipe", false, "confirm that this installation may wipe a disk of the client")
 	force := c.Bool("force", false, "arm a client that is being installed right now")
 	expires := c.String("expires", "", "how long the arming lasts, like 2h or 7d (1m to 30d; default: arm_timeout)")
+	values := map[string]string{}
+	c.Func("set", "`NAME=VALUE` for {{var:NAME}} in the answer file; can be given several times", func(s string) error {
+		name, value, ok := strings.Cut(s, "=")
+		if !ok || !profiles.ValidVariable(name) {
+			return fmt.Errorf("write NAME=VALUE, where NAME is a lower-case letter followed by lower-case letters, digits or underscores")
+		}
+		if _, twice := values[name]; twice {
+			return fmt.Errorf("%s is given twice", name)
+		}
+		if err := profiles.CheckValue(value); err != nil {
+			return fmt.Errorf("%s: %v", name, err)
+		}
+		values[name] = value
+		return nil
+	})
 	pos, err := c.parse(args)
 	if err != nil {
 		return err
@@ -95,12 +115,38 @@ server, with what they reported.
 	if err != nil {
 		return err
 	}
-	_, p, err := profiles.Open(cfg.ProfilesDir()).AnswerFile(*profile)
+	answer, p, err := profiles.Open(cfg.ProfilesDir()).AnswerFile(*profile)
 	if errors.Is(err, profiles.ErrNotFound) {
 		return fmt.Errorf("there is no profile called %q; see 'kyro profile list'", *profile)
 	}
 	if err != nil {
 		return err
+	}
+	// The values must be exactly the ones the answer file has places for.
+	// A missing one would stop the installation when the client boots; one
+	// too many is most likely a name that was mistyped.
+	wanted, err := profiles.Variables(answer)
+	if err != nil {
+		return fmt.Errorf("profile %s: %v", p.Name, err)
+	}
+	var missing []string
+	uses := map[string]bool{}
+	for _, name := range wanted {
+		uses[name] = true
+		if _, ok := values[name]; !ok {
+			missing = append(missing, "--set "+name+"=...")
+		}
+	}
+	if len(missing) > 0 {
+		return usageErr("profile %s needs a value for this machine: %s", p.Name, strings.Join(missing, " "))
+	}
+	for name := range values {
+		if !uses[name] {
+			if len(wanted) == 0 {
+				return usageErr("--set %s: profile %s has no place for values; its answer file contains no {{var:...}}", name, p.Name)
+			}
+			return usageErr("--set %s: profile %s does not use {{var:%s}}; it uses %s", name, p.Name, name, strings.Join(wanted, ", "))
+		}
 	}
 
 	fmt.Fprintf(e.stdout, "Profile %s:\n", p.Name)
@@ -114,7 +160,7 @@ server, with what they reported.
 	if err != nil {
 		return err
 	}
-	client, err := st.Arm(key, state.Arming{Image: im.Name, Profile: p.Name, Lifetime: lifetime}, *force)
+	client, err := st.Arm(key, state.Arming{Image: im.Name, Profile: p.Name, Lifetime: lifetime, Values: values}, *force)
 	if errors.Is(err, state.ErrInstalling) {
 		return fmt.Errorf("%s is being installed right now (since %s); use --force to arm it anyway", key, when(client.StartedAt))
 	}
@@ -123,6 +169,9 @@ server, with what they reported.
 	}
 	fmt.Fprintf(e.stdout, "\nArmed: %s will be installed with image %s and profile %s on its next\nnetwork boot, once.\n", key, im.Name, p.Name)
 	fmt.Fprintf(e.stdout, "The arming lasts until %s (%s). If the client has not booted from the\nnetwork by then, it is not installed.\n\n%s\n", when(client.ArmedUntil), lifetimeText(lifetime), selectionNotice)
+	if len(wanted) > 0 {
+		fmt.Fprintf(e.stdout, "\nValues for this installation: %s. They are deleted when it ends.\n", strings.Join(wanted, ", "))
+	}
 	if packs, err := drivers.Open(cfg.DriversDir()).List(); err != nil {
 		fmt.Fprintf(e.stdout, "\nNote: the driver packs cannot be read, so the installation will fail: %v\n", err)
 	} else if len(packs) > 0 {
