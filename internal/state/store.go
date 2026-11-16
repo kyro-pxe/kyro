@@ -66,6 +66,47 @@ const (
 	Expired State = "expired"
 )
 
+// Stage says how far an installation has come. It is what Kyro saw or was
+// told, not proof: the reports from Windows PE can be forged by whoever
+// knows the token of the installation, like the callback.
+type Stage string
+
+// The stages, in the order in which an installation passes them. Not every
+// installation reports every one.
+const (
+	// StageInstallerSent: the client was given the boot script that loads
+	// Windows PE. Nothing has been heard from Windows PE yet.
+	StageInstallerSent Stage = "installer-sent"
+	// StageShareConnected: Windows PE runs, has a network, and has
+	// connected the install share.
+	StageShareConnected Stage = "share-connected"
+	// StageSetupStarted: the start script is about to start Windows Setup.
+	StageSetupStarted Stage = "setup-started"
+	// StageSetupFinished: Windows Setup ended its part in Windows PE
+	// without an error.
+	StageSetupFinished Stage = "setup-finished"
+	// StageRestarted: the machine has booted from the network again since
+	// it was given the installer, as Setup makes it do.
+	StageRestarted Stage = "restarted"
+)
+
+// rank orders the stages. A stage is only ever replaced by a later one.
+func (s Stage) rank() int {
+	switch s {
+	case StageInstallerSent:
+		return 1
+	case StageShareConnected:
+		return 2
+	case StageSetupStarted:
+		return 3
+	case StageSetupFinished:
+		return 4
+	case StageRestarted:
+		return 5
+	}
+	return 0
+}
+
 // How long an arming may last. A client that is armed and forgotten must
 // not be wiped when it happens to boot from the network weeks later, so
 // every arming ends by itself.
@@ -106,8 +147,36 @@ type Client struct {
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
 	LastSeen   *time.Time `json:"last_seen,omitempty"`
 
+	// Stage is how far the installation has come, StageAt since when, and
+	// Restarts how often the machine has booted from the network since it
+	// was given the installer. They stay after the installation has ended.
+	Stage    Stage      `json:"stage,omitempty"`
+	StageAt  *time.Time `json:"stage_at,omitempty"`
+	Restarts int        `json:"restarts,omitempty"`
+
 	// Failure says why the client is in state failed or expired.
 	Failure string `json:"failure,omitempty"`
+}
+
+// advance moves the client to a later stage and says whether it did.
+func (c *Client) advance(to Stage, now *time.Time) bool {
+	if to.rank() <= c.Stage.rank() {
+		return false
+	}
+	c.Stage, c.StageAt = to, now
+	return true
+}
+
+// stalled describes, for an installation that did not finish, where it
+// stopped and what usually causes that. It is advice, not a finding.
+func (c *Client) stalled() string {
+	switch c.Stage {
+	case StageShareConnected, StageSetupStarted:
+		return "Windows PE connected to the install share and started Windows Setup, and the machine never restarted. Usual causes: Setup found no disk (a missing storage driver, see 'kyro driver'), or it rejected the answer file. Setup shows the reason on the client's screen"
+	case StageSetupFinished, StageRestarted:
+		return fmt.Sprintf("Windows Setup finished in Windows PE and the machine restarted %d times, but the installed system did not call back. Usual causes: the answer file has no callback command, the installed Windows has no driver for the network card, or Setup is waiting for input on the client's screen", c.Restarts)
+	}
+	return "the client was given the installer, and Windows PE never connected to the install share. Usual causes: Windows PE has no driver for the network card (see 'kyro driver'), or it got no address. The client's screen shows where it stopped"
 }
 
 // armedUntil returns when the arming of an armed client runs out. A record
@@ -357,6 +426,7 @@ func (s *Store) Arm(k Key, a Arming, force bool) (Client, error) {
 	}
 	c.State, c.Image, c.Profile, c.Token = Armed, a.Image, a.Profile, token
 	c.ArmedAt, c.StartedAt, c.FinishedAt, c.Failure = s.now(), nil, nil, ""
+	c.Stage, c.StageAt, c.Restarts = "", nil, 0
 	until := c.ArmedAt.Add(a.Lifetime)
 	c.ArmedUntil = &until
 	return *c, s.write(c)
@@ -458,6 +528,7 @@ func (s *Store) Boot(id Identity, addr string) (Decision, error) {
 		// fails, the client gets nothing: better no installation than
 		// one that could repeat.
 		c.State, c.StartedAt = Installing, s.now()
+		c.Stage, c.StageAt, c.Restarts = StageInstallerSent, c.StartedAt, 0
 		seen(c)
 		if err := s.write(c); err != nil {
 			return Decision{}, err
@@ -474,7 +545,21 @@ func (s *Store) Boot(id Identity, addr string) (Decision, error) {
 
 	if len(found) > 0 {
 		c := found[0]
+		// Prefer the record of a running installation: its restarts are
+		// counted there.
+		for _, f := range found {
+			if f.State == Installing {
+				c = f
+				break
+			}
+		}
 		seen(c)
+		if c.State == Installing {
+			// Setup restarts the machine; with the network first in the
+			// boot order, each restart comes by here.
+			c.Restarts++
+			c.advance(StageRestarted, s.now())
+		}
 		return Decision{Client: *c}, s.write(c)
 	}
 
@@ -558,6 +643,63 @@ func (s *Store) Provisioned(token string) (c Client, changed bool, err error) {
 	return Client{}, false, ErrNoToken
 }
 
+// Events that Windows PE reports, see Report.
+const (
+	EventShareConnected = "share-connected"
+	EventSetupStarted   = "setup-started"
+	EventSetupFinished  = "setup-finished"
+	EventSetupFailed    = "setup-failed"
+)
+
+// Report records what the start script in Windows PE says about the
+// installation under a token: that it reached a stage, or that Windows
+// Setup ended with an error, which ends the installation as failed. detail
+// is the exit code of Setup in that case. changed says whether the record
+// changed; reports that repeat or come late change nothing.
+//
+// Like the callback, a report proves nothing: whoever knows the token can
+// send it.
+func (s *Store) Report(token, event, detail string) (c Client, changed bool, err error) {
+	var stage Stage
+	switch event {
+	case EventShareConnected:
+		stage = StageShareConnected
+	case EventSetupStarted:
+		stage = StageSetupStarted
+	case EventSetupFinished:
+		stage = StageSetupFinished
+	case EventSetupFailed:
+	default:
+		return Client{}, false, fmt.Errorf("unknown event %q", event)
+	}
+	unlock, err := s.lock()
+	if err != nil {
+		return Client{}, false, err
+	}
+	defer unlock()
+
+	rec, err := s.findToken(token)
+	if err != nil {
+		return Client{}, false, err
+	}
+	if rec == nil || rec.State != Installing {
+		return Client{}, false, ErrNoToken
+	}
+	if event == EventSetupFailed {
+		rec.State, rec.FinishedAt = Failed, s.now()
+		rec.Failure = "Windows Setup ended with an error in Windows PE"
+		if detail != "" {
+			rec.Failure += " (exit code " + detail + ")"
+		}
+		rec.Failure += ". Its logs are on the client, in X:\\Windows\\Panther, and its screen shows the reason"
+		return *rec, true, s.write(rec)
+	}
+	if !rec.advance(stage, s.now()) {
+		return *rec, false, nil
+	}
+	return *rec, true, s.write(rec)
+}
+
 // Fail ends the installation under a token as failed, with the reason. It
 // is for failures that Kyro notices itself, such as an image that is gone
 // by the time the client asks for it.
@@ -599,7 +741,7 @@ func (s *Store) Expire(timeout time.Duration) ([]Client, error) {
 		case c.expire(s.now()):
 		case c.State == Installing && c.StartedAt != nil && s.Now().Sub(*c.StartedAt) > timeout:
 			c.State, c.FinishedAt = Failed, s.now()
-			c.Failure = fmt.Sprintf("the installed system did not report back within %s", timeout)
+			c.Failure = fmt.Sprintf("the installed system did not report back within %s: %s", timeout, c.stalled())
 		default:
 			continue
 		}

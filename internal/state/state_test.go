@@ -324,6 +324,150 @@ func TestArmingRunsOut(t *testing.T) {
 	})
 }
 
+// TestStages: the record follows an installation through what Kyro sees
+// and what Windows PE reports, forwards only.
+func TestStages(t *testing.T) {
+	start := time.Date(2026, 11, 16, 10, 0, 0, 0, time.UTC)
+	fixture := func(t *testing.T) (*Store, *time.Time, string) {
+		s, now := newStore(t), start
+		s.Now = func() time.Time { return now }
+		must(s.Arm(macKey, arming("win11", "example"), false))(t)
+		d := must(s.Boot(machine, ""))(t)
+		if d.Client.Stage != StageInstallerSent || !d.Client.StageAt.Equal(start) || d.Client.Restarts != 0 {
+			t.Fatalf("after the installer was handed out: %+v", d.Client)
+		}
+		return s, &now, d.Client.Token
+	}
+	report := func(t *testing.T, s *Store, token, event string, wantChanged bool, want Stage) Client {
+		t.Helper()
+		c, changed, err := s.Report(token, event, "")
+		if err != nil || changed != wantChanged || c.Stage != want {
+			t.Fatalf("Report(%s) = stage %s, changed %v, %v; want stage %s, changed %v", event, c.Stage, changed, err, want, wantChanged)
+		}
+		return c
+	}
+
+	t.Run("an installation that goes well", func(t *testing.T) {
+		s, now, token := fixture(t)
+		*now = start.Add(2 * time.Minute)
+		c := report(t, s, token, EventShareConnected, true, StageShareConnected)
+		if !c.StageAt.Equal(*now) {
+			t.Errorf("StageAt = %v", c.StageAt)
+		}
+		report(t, s, token, EventShareConnected, false, StageShareConnected)
+		report(t, s, token, EventSetupStarted, true, StageSetupStarted)
+		// A report that comes late does not move the record back.
+		report(t, s, token, EventShareConnected, false, StageSetupStarted)
+
+		*now = start.Add(10 * time.Minute)
+		if d := must(s.Boot(machine, ""))(t); d.Install || d.Client.Stage != StageRestarted || d.Client.Restarts != 1 || !d.Client.StageAt.Equal(*now) {
+			t.Fatalf("first restart: %+v", d.Client)
+		}
+		*now = start.Add(15 * time.Minute)
+		if d := must(s.Boot(machine, ""))(t); d.Client.Restarts != 2 || !d.Client.StageAt.Equal(start.Add(10*time.Minute)) {
+			t.Fatalf("second restart: %+v", d.Client)
+		}
+		report(t, s, token, EventSetupFinished, false, StageRestarted)
+
+		c, _, err := s.Provisioned(token)
+		if err != nil || c.State != Provisioned || c.Stage != StageRestarted || c.Restarts != 2 {
+			t.Fatalf("provisioned: %+v, %v", c, err)
+		}
+		// The installation is over: no more reports, no more counting.
+		if _, _, err := s.Report(token, EventSetupStarted, ""); !errors.Is(err, ErrNoToken) {
+			t.Errorf("a report after the installation: %v", err)
+		}
+		if d := must(s.Boot(machine, ""))(t); d.Client.Restarts != 2 {
+			t.Errorf("a boot after the installation was counted as a restart: %+v", d.Client)
+		}
+		// Arming again starts from nothing.
+		if c := must(s.Arm(macKey, arming("win11", "example"), false))(t); c.Stage != "" || c.StageAt != nil || c.Restarts != 0 {
+			t.Errorf("armed again: %+v", c)
+		}
+	})
+
+	t.Run("Setup fails in Windows PE", func(t *testing.T) {
+		s, _, token := fixture(t)
+		report(t, s, token, EventSetupStarted, true, StageSetupStarted)
+		c, changed, err := s.Report(token, EventSetupFailed, "-2147023436")
+		if err != nil || !changed || c.State != Failed || !strings.Contains(c.Failure, "exit code -2147023436") || !strings.Contains(c.Failure, `X:\Windows\Panther`) {
+			t.Fatalf("setup-failed: %+v, %v", c, err)
+		}
+		if d := must(s.Boot(machine, ""))(t); d.Install || d.Client.State != Failed {
+			t.Fatalf("boot after the failure: %+v", d)
+		}
+		if _, err := s.Installation(token); !errors.Is(err, ErrNoToken) {
+			t.Errorf("the token still opens the files: %v", err)
+		}
+		if _, _, err := s.Report(token, EventSetupFailed, "1"); !errors.Is(err, ErrNoToken) {
+			t.Errorf("a second failure report: %v", err)
+		}
+	})
+
+	t.Run("what is not a report", func(t *testing.T) {
+		s, _, token := fixture(t)
+		if _, _, err := s.Report(token, "provisioned", ""); err == nil || errors.Is(err, ErrNoToken) {
+			t.Errorf("an unknown event: %v", err)
+		}
+		for _, bad := range []string{"", "short", strings.Repeat("0", 32), token[:31] + "x"} {
+			if bad == token {
+				continue
+			}
+			if _, _, err := s.Report(bad, EventShareConnected, ""); !errors.Is(err, ErrNoToken) {
+				t.Errorf("token %q: %v", bad, err)
+			}
+		}
+		// An armed client that has not booted has a token, and no
+		// installation to report on.
+		other := Key{KindSerial, "OTHER"}
+		armed := must(s.Arm(other, arming("win11", "example"), false))(t)
+		if _, _, err := s.Report(armed.Token, EventShareConnected, ""); !errors.Is(err, ErrNoToken) {
+			t.Errorf("a report for a client that is only armed: %v", err)
+		}
+		if c, _, _ := s.Get(macKey); c.Stage != StageInstallerSent {
+			t.Errorf("the record changed: %+v", c)
+		}
+	})
+
+	// When the time is up, the failure says where the installation stopped.
+	for _, tt := range []struct {
+		name   string
+		events []string
+		boots  int
+		want   string
+	}{
+		{"nothing heard from Windows PE", nil, 0, "never connected to the install share"},
+		{"Setup started and nothing more", []string{EventShareConnected, EventSetupStarted}, 0, "found no disk"},
+		{"restarted and no callback", []string{EventShareConnected, EventSetupStarted}, 3, "restarted 3 times, but the installed system did not call back"},
+	} {
+		t.Run("timeout: "+tt.name, func(t *testing.T) {
+			s, now, token := fixture(t)
+			for _, e := range tt.events {
+				must2(s.Report(token, e, ""))(t)
+			}
+			for i := 0; i < tt.boots; i++ {
+				must(s.Boot(machine, ""))(t)
+			}
+			*now = start.Add(4 * time.Hour)
+			failed := must(s.Expire(3 * time.Hour))(t)
+			if len(failed) != 1 || !strings.Contains(failed[0].Failure, "did not report back within 3h0m0s") || !strings.Contains(failed[0].Failure, tt.want) {
+				t.Fatalf("Expire = %+v, want a failure with %q", failed, tt.want)
+			}
+		})
+	}
+}
+
+// must2 is must for functions with two results before the error.
+func must2[A, B any](a A, b B, err error) func(testing.TB) A {
+	return func(t testing.TB) A {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return a
+	}
+}
+
 func TestFailedClientIsNotReinstalled(t *testing.T) {
 	s := newStore(t)
 	now := time.Date(2026, 11, 14, 10, 0, 0, 0, time.UTC)
@@ -669,6 +813,7 @@ func FuzzTransitions(f *testing.F) {
 	f.Add([]byte{1, 3, 5, 3, 7, 3, 9, 3})
 	f.Add([]byte{0, 8, 2, 0, 10, 2, 4, 2})
 	f.Add([]byte{0, 8, 8, 8, 2, 0, 8, 2, 1, 9, 9, 9, 3})
+	f.Add([]byte{0, 2, 12, 26, 2, 40, 2, 4, 12, 54})
 	f.Fuzz(func(t *testing.T, ops []byte) {
 		if len(ops) > 64 {
 			return
@@ -686,7 +831,7 @@ func FuzzTransitions(f *testing.F) {
 
 		for _, op := range ops {
 			m := int(op) % 2
-			switch op / 2 % 6 {
+			switch op / 2 % 7 {
 			case 0:
 				if c, err := s.Arm(keys[m], short, false); err == nil {
 					arms[m]++
@@ -714,6 +859,16 @@ func FuzzTransitions(f *testing.F) {
 				if c, err := s.Arm(keys[m], short, true); err == nil {
 					arms[m]++
 					tokens[m], until[m] = c.Token, *c.ArmedUntil
+				}
+			case 6:
+				events := []string{EventShareConnected, EventSetupStarted, EventSetupFinished, EventSetupFailed}
+				before, _, _ := s.Get(keys[m])
+				c, changed, err := s.Report(tokens[m], events[int(op/14)%len(events)], "1")
+				if err == nil && changed && before.State != Installing {
+					t.Fatalf("a report changed a client in state %s to %+v (ops %v)", before.State, c, ops)
+				}
+				if err == nil && c.State != Failed && c.Stage.rank() < before.Stage.rank() {
+					t.Fatalf("a report moved the stage back from %s to %s (ops %v)", before.Stage, c.Stage, ops)
 				}
 			}
 			for i := range ids {
