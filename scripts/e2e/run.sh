@@ -447,6 +447,12 @@ cmd_run() {
 		wait_for 300 1 "machine 0 fetches the driver packs" count 'boot: driver packs sent'
 		say "PASS: the driver packs were handed out with the installer"
 	fi
+	# Windows PE reports its progress over the share.
+	wait_for 600 1 "Windows PE reports that it connected the share" count 'installation: Windows PE connected to the install share'
+	wait_for 120 1 "Windows PE reports that it starts Setup" count 'installation: Windows Setup was started in Windows PE'
+	say "PASS: Windows PE reported that it connected the share and started Setup"
+	expect "kyro clients shows that as the progress" \
+		"$("$KYRO" clients | grep -c 'Windows Setup was started in Windows PE (since ')" 1
 	say "installation started; waiting up to $((INSTALL_TIMEOUT / 60)) minutes for the callback"
 	wait_for "$INSTALL_TIMEOUT" provisioned "the installed system reports back" state 0
 	say "provisioned after $((($(date +%s) - t0) / 60)) minutes"
@@ -455,6 +461,8 @@ cmd_run() {
 	during=$(boots 0)
 	expect "Setup's restarts went through the network and were sent to the disk ($during network boots)" \
 		"$([ "$during" -ge 2 ] && echo yes)" yes
+	expect "the record counted them as restarts of the installation" \
+		"$("$KYRO" clients --json | tr -d ' \n' | grep -o "\"client\":\"mac:$(vm_mac 0)\"[^}]*" | grep -c "\"stage\":\"restarted\".*\"restarts\":$((during - 1))")" 1
 
 	if [ "$RECORD" = 1 ]; then
 		# Let the recording see the desktop before the machine is reset.
