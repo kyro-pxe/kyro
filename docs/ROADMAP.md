@@ -17,7 +17,7 @@ OVMF) with one ISO, the Windows 11 Enterprise evaluation. Nothing was tried
 on physical hardware.
 
 The end-to-end test (`make e2e`, [scripts/e2e](../scripts/e2e/README.md)) is
-referred to as "e2e" below. It passed eight times:
+referred to as "e2e" below. It passed nine times:
 
 | Date | Variant | Time |
 | ---- | ------- | ---- |
@@ -29,6 +29,7 @@ referred to as "e2e" below. It passed eight times:
 | 2026-11-14 | Secure Boot off on the machines, Kyro's defaults (signed shim and iPXE) | 27 minutes |
 | 2026-11-16 | Secure Boot enforced, Kyro's defaults, with the step for an arming that runs out | 33 minutes |
 | 2026-11-16 | Secure Boot enforced, machines with a virtio network card and a virtio SCSI controller, with the driver packs `virtio` and `intel-rst` | 27 minutes |
+| 2026-11-16 | Secure Boot enforced, Kyro's defaults, with the checks of the progress reports | 29 minutes |
 
 The first, second and fourth run used the unsigned iPXE, which is now what
 `secure_boot: false` gives. The last two are what Kyro does by default.
@@ -94,6 +95,7 @@ The first, second and fourth run used the unsigned iPXE, which is now what
 | `--confirm-wipe` for profiles that wipe a disk | tested | Unit tests; e2e. |
 | Callback from the installed system | tested | Unit and fuzz tests; e2e. Rate and size limited. Not authentication. |
 | `failed` after `install_timeout` | tested | Unit tests only. |
+| Progress of an installation, and where it stopped when it fails | tested | Not in v0.1.0-alpha. Stages reported by the start script in Windows PE over the install share, and Setup's restarts counted. Unit and fuzz tests, and a test with an SMB client; e2e: Windows PE reported that it connected the share and started Setup, 30 seconds after it was given the installer, and Setup's restarts were counted. `setup-finished` did not come, as expected: Setup restarted the machine itself. `setup-failed` and the reasons after a timeout were never produced by a real installation. [ADR 0008](adr/0008-progress.md). |
 | An arming runs out (`arm_timeout`, `kyro arm --expires`) | tested | Not in v0.1.0-alpha. Unit and fuzz tests; e2e: a second machine was armed for two minutes, booted half an hour later, was sent to its disk, and its disk stayed empty. [ADR 0006](adr/0006-arming-expires.md). |
 | Menu for unknown clients (`unknown_clients: menu`) | tested | Off by default. Unit tests only; shows identifiers and boots the disk. |
 | Read-only status page and JSON (`/api/v1/clients`) | tested | Unit tests. Listens on `127.0.0.1:8080` by default. |

@@ -16,3 +16,4 @@ Status values: **Proposed** (under discussion), **Accepted**, **Superseded**
 | 0005 | [UEFI Secure Boot](0005-secure-boot.md)                           | Accepted |
 | 0006 | [An arming runs out](0006-arming-expires.md)                      | Accepted |
 | 0007 | [Drivers for Windows PE and the installed system](0007-drivers.md) | Accepted |
+| 0008 | [Progress and failure reasons of an installation](0008-progress.md) | Accepted |

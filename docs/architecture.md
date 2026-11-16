@@ -57,7 +57,10 @@ installed Windows
    network ([ADR 0007](adr/0007-drivers.md)).
 6. **Setup.** The start script maps the install share and starts
    `setup.exe` from RAM with the answer file and `install.wim` from the
-   share ([ADR 0001](adr/0001-windows-install-source.md)).
+   share ([ADR 0001](adr/0001-windows-install-source.md)). It tells Kyro
+   that it connected the share and that it starts Setup, by asking the
+   share for files that do not exist
+   ([ADR 0008](adr/0008-progress.md)).
 7. **Callback.** The answer file makes the installed system send one HTTP
    request to the callback address. Kyro marks the client `provisioned`.
 

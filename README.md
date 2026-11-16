@@ -114,6 +114,13 @@ installer, and to `provisioned` when the installed system calls back. In
 Kyro's own test runs that took 24 to 36 minutes on a virtual machine. A client
 that does not call back within `install_timeout` (3 hours) becomes `failed`.
 
+While a client is `installing`, `kyro clients` says how far it has come:
+whether Windows PE connected to the install share, whether Setup was
+started, and how often Setup has restarted the machine. If Setup ends with
+an error in Windows PE, the client becomes `failed` at once; if the time
+runs out, the reason says where the installation stopped and what usually
+causes that ([ADR 0008](docs/adr/0008-progress.md)).
+
 The arming lasts 24 hours. If the client has not booted from the network by
 then, it becomes `expired` and is not installed; arm it again. `kyro arm
 --expires 2h` (or `7d`, up to `30d`) sets another time for one arming, and
@@ -163,7 +170,7 @@ details and what was tested.
 ## Known limitations
 
 - **Tested in virtual machines only.** One ISO (Windows 11 Enterprise
-  evaluation), QEMU with OVMF, eight full runs. No physical hardware, no other
+  evaluation), QEMU with OVMF, nine full runs. No physical hardware, no other
   editions or languages.
 - **Secure Boot works in virtual machines; real hardware is untried.** By
   default Kyro hands UEFI clients the shim and the iPXE that the iPXE

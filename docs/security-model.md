@@ -110,6 +110,14 @@ installed Windows of every machine Kyro installs.
   Someone who can change traffic on the boot network can change them, as
   they can change the installer itself.
 
+## Progress reports
+
+The start script in Windows PE reports its progress over the install share,
+under the token of the installation. Like the callback, that is not
+authentication. Whoever knows the token can report a stage, or report that
+Setup failed, which marks the client `failed`. It cannot start or repeat an
+installation.
+
 ## The installation token
 
 Each arming creates a random 128-bit token. The files of that installation
