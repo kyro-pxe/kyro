@@ -35,6 +35,8 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/kyro-pxe/kyro/internal/cab"
@@ -63,6 +65,7 @@ type Service struct {
 
 	boots     *rateLimit
 	callbacks *rateLimit
+	reports   *rateLimit
 }
 
 // maxQueryValue bounds each identifier in a boot request.
@@ -258,6 +261,7 @@ func (s *Service) startScript(c state.Client) ([]byte, error) {
 		return nil, fmt.Errorf("image %s: %w", c.Image, err)
 	}
 	return startScript(startParams{
+		Token:    c.Token,
 		Address:  s.Config.Address,
 		Port:     s.Config.SMB.Port,
 		Username: s.Config.SMB.Username,
@@ -366,6 +370,96 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	io.WriteString(w, "ok\n")
+}
+
+// ShareTree is what the install share serves: the tree of the images.
+type ShareTree interface {
+	fs.FS
+	fs.StatFS
+	fs.ReadDirFS
+}
+
+// ShareFS returns the tree for the install share. It is inner with one
+// addition: a client that looks for a name that starts with ReportPrefix in
+// the root of the share is reporting on its installation. There is never
+// such a file.
+func (s *Service) ShareFS(inner ShareTree) fs.FS {
+	// A report costs a look at every client record. Whoever can log in to
+	// the share, which is anyone on the boot network, can send them.
+	s.reports = newRateLimit(30, 1)
+	return &reportFS{ShareTree: inner, report: s.handleReport}
+}
+
+type reportFS struct {
+	ShareTree
+	report func(name string)
+}
+
+func (f *reportFS) isReport(name string) bool {
+	if strings.HasPrefix(name, ReportPrefix) && !strings.Contains(name, "/") {
+		f.report(name)
+		return true
+	}
+	return false
+}
+
+func (f *reportFS) Open(name string) (fs.File, error) {
+	if f.isReport(name) {
+		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
+	}
+	return f.ShareTree.Open(name)
+}
+
+func (f *reportFS) Stat(name string) (fs.FileInfo, error) {
+	if f.isReport(name) {
+		return nil, &fs.PathError{Op: "stat", Path: name, Err: fs.ErrNotExist}
+	}
+	return f.ShareTree.Stat(name)
+}
+
+var reportName = regexp.MustCompile(`^` + regexp.QuoteMeta(ReportPrefix) + `([0-9a-f]{32})\.([a-z-]{1,32})(?:\.(-?[0-9]{1,11}))?$`)
+
+// handleReport records what the start script in Windows PE reports.
+// Anything that is not a report of a running installation is ignored
+// without a word: the name comes from the network.
+func (s *Service) handleReport(name string) {
+	// All reports share one allowance: on the share nothing says who asks.
+	if !s.reports.allow(netip.Addr{}) {
+		return
+	}
+	m := reportName.FindStringSubmatch(name)
+	if m == nil {
+		return
+	}
+	c, changed, err := s.State.Report(m[1], m[2], m[3])
+	if err != nil || !changed {
+		if err != nil && !errors.Is(err, state.ErrNoToken) && m[2] != "" {
+			s.Log.Debug("report: not recorded", "event", m[2], "err", err)
+		}
+		return
+	}
+	if c.State == state.Failed {
+		s.Log.Warn("installation failed", "client", c.Key.String(), "reason", c.Failure)
+		return
+	}
+	s.Log.Info("installation: "+stageText(c.Stage), "client", c.Key.String())
+}
+
+// stageText says in words how far an installation has come.
+func stageText(stage state.Stage) string {
+	switch stage {
+	case state.StageInstallerSent:
+		return "the installer was handed out; Windows PE has not been heard from"
+	case state.StageShareConnected:
+		return "Windows PE connected to the install share"
+	case state.StageSetupStarted:
+		return "Windows Setup was started in Windows PE"
+	case state.StageSetupFinished:
+		return "Windows Setup finished in Windows PE"
+	case state.StageRestarted:
+		return "Setup restarted the machine"
+	}
+	return ""
 }
 
 // Expire marks installations as failed that have run for longer than the

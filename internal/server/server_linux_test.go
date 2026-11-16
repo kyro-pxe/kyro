@@ -223,6 +223,15 @@ func TestWholeInstallation(t *testing.T) {
 	if err != nil || len(listing) != 1 || listing[0].Name != "win11" {
 		t.Errorf("top of the share: %v, %v", listing, err)
 	}
+	// The start script reports its progress by asking for a file that is
+	// not there. The share must say so, and Kyro must have noted it.
+	var none bytes.Buffer
+	if err := conn.RetrieveFile(boot.ShareName, boot.ReportPrefix+armed.Token+".share-connected", 0, none.Write); err == nil || none.Len() != 0 {
+		t.Errorf("a report over SMB returned a file: %v, %d bytes", err, none.Len())
+	}
+	if c, _, _ := r.state.Get(key); c.Stage != state.StageShareConnected {
+		t.Errorf("after a report over SMB the stage is %q", c.Stage)
+	}
 	payload := bytes.NewReader([]byte("x"))
 	if err := conn.PutFile(boot.ShareName, `win11\new.txt`, 0, payload.Read); err == nil {
 		t.Error("writing to the share succeeded")

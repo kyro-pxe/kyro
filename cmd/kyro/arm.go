@@ -251,6 +251,9 @@ that booted from this server without being armed.
 		if cl.State == state.Armed && v.ArmedUntil != nil {
 			note = "armed until " + when(v.ArmedUntil)
 		}
+		if v.Progress != "" {
+			note = v.Progress + " (since " + when(v.StageAt) + ")"
+		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", v.Client, v.State, dash(v.Image), dash(v.Profile), when(v.LastSeen), dash(v.MAC), dash(v.Serial), note)
 	}
 	return w.Flush()

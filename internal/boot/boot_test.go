@@ -21,8 +21,10 @@ package boot
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -404,6 +406,170 @@ func TestDamagedDriverPackStopsTheInstallation(t *testing.T) {
 	}
 }
 
+// shareFS is the tree of the install share as the SMB server gets it.
+func (fx *fixture) shareFS() fs.FS {
+	return fx.svc.ShareFS(fx.svc.Images)
+}
+
+// TestReportsOverTheShare: the start script reports its progress by asking
+// the share for files that do not exist.
+func TestReportsOverTheShare(t *testing.T) {
+	fx := newFixture(t)
+	share := fx.shareFS()
+	armed := fx.arm(example.Name)
+	fx.get(testQuery)
+	name := func(event string) string { return ReportPrefix + armed.Token + "." + event }
+
+	// The start script says what to ask for, in the order of the events.
+	start := fx.get("/i/" + armed.Token + "/kyro-start.cmd").Body.String()
+	at := 0
+	for _, want := range []string{
+		`set KYRO_REPORT=%KYRO_SHARE%\kyro-report.` + armed.Token + "\r\n",
+		"net use %KYRO_SHARE%",
+		`set /p KYRO_NONE=<%KYRO_REPORT%.share-connected 2>nul` + "\r\n",
+		`set /p KYRO_NONE=<%KYRO_REPORT%.setup-started 2>nul` + "\r\n",
+		`X:\sources\setup.exe`,
+		"if errorlevel 1 goto setupfailed\r\n",
+		`set /p KYRO_NONE=<%KYRO_REPORT%.setup-finished 2>nul` + "\r\n",
+		":setupfailed\r\n",
+		"set KYRO_RC=%ERRORLEVEL%\r\n",
+		`set /p KYRO_NONE=<%KYRO_REPORT%.setup-failed.%KYRO_RC% 2>nul` + "\r\n",
+	} {
+		i := strings.Index(start[at:], want)
+		if i < 0 {
+			t.Fatalf("start script lacks %q after position %d:\n%s", want, at, start)
+		}
+		at += i + len(want)
+	}
+
+	// There is never such a file, whatever is asked for and however.
+	if _, err := fs.Stat(share, name("share-connected")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("Stat of a report: %v", err)
+	}
+	if c := fx.client(); c.Stage != state.StageShareConnected {
+		t.Fatalf("stage = %q", c.Stage)
+	}
+	if _, err := share.Open(name("setup-started")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("Open of a report: %v", err)
+	}
+	if c := fx.client(); c.Stage != state.StageSetupStarted {
+		t.Fatalf("stage = %q", c.Stage)
+	}
+	for _, want := range []string{"Windows PE connected to the install share", "Windows Setup was started in Windows PE"} {
+		if !strings.Contains(fx.logLines.String(), want) {
+			t.Errorf("the log lacks %q", want)
+		}
+	}
+
+	// The status shows it while the installation runs.
+	rec := httptest.NewRecorder()
+	fx.svc.StatusHandler().ServeHTTP(rec, httptest.NewRequest("GET", "/api/v1/clients", nil))
+	for _, want := range []string{`"stage":"setup-started"`, `"progress":"Windows Setup was started in Windows PE"`, `"stage_at":"`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("the client list lacks %s:\n%s", want, rec.Body.String())
+		}
+	}
+	rec = httptest.NewRecorder()
+	fx.svc.StatusHandler().ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
+	if !strings.Contains(rec.Body.String(), "Windows Setup was started in Windows PE, since 20") {
+		t.Errorf("the status page does not show the progress:\n%s", rec.Body.String())
+	}
+
+	// A restart through the network is the next stage.
+	fx.get(testQuery)
+	fx.get(testQuery)
+	if c := fx.client(); c.Stage != state.StageRestarted || c.Restarts != 2 {
+		t.Fatalf("after two restarts: stage %q, %d restarts", c.Stage, c.Restarts)
+	}
+	rec = httptest.NewRecorder()
+	fx.svc.StatusHandler().ServeHTTP(rec, httptest.NewRequest("GET", "/api/v1/clients", nil))
+	if !strings.Contains(rec.Body.String(), "Setup restarted the machine 2 times; waiting for the installed system to call back") {
+		t.Errorf("the client list after restarts:\n%s", rec.Body.String())
+	}
+
+	// Everything else on the share is as before.
+	if info, err := fs.Stat(share, "win11/sources/install.wim"); err != nil || info.IsDir() {
+		t.Errorf("an image file through the share: %v", err)
+	}
+	if entries, err := fs.ReadDir(share, "."); err != nil || len(entries) != 1 || entries[0].Name() != "win11" {
+		t.Errorf("the top of the share: %v, %v", entries, err)
+	}
+	if _, err := fs.Stat(share, "win11/"+name("setup-failed")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("a report name inside an image: %v", err)
+	}
+	if c := fx.client(); c.State != state.Installing {
+		t.Errorf("a report name inside an image changed the state to %s", c.State)
+	}
+}
+
+func TestSetupFailureReportedOverTheShare(t *testing.T) {
+	fx := newFixture(t)
+	share := fx.shareFS()
+	armed := fx.arm(example.Name)
+	fx.get(testQuery)
+
+	fs.Stat(share, ReportPrefix+armed.Token+".setup-failed.-2147023436")
+	c := fx.client()
+	if c.State != state.Failed || !strings.Contains(c.Failure, "exit code -2147023436") {
+		t.Fatalf("record: %s, %q", c.State, c.Failure)
+	}
+	if !strings.Contains(fx.logLines.String(), "installation failed") {
+		t.Error("the failure was not logged")
+	}
+	// The machine is not installed again, and its files are gone.
+	if body := fx.get(testQuery).Body.String(); !isLocal(body) {
+		t.Errorf("boot after the failure:\n%s", body)
+	}
+	if rec := fx.get("/i/" + armed.Token + "/autounattend.xml"); rec.Code != 404 {
+		t.Errorf("answer file after the failure: %d", rec.Code)
+	}
+}
+
+// What is not a report of a running installation changes nothing.
+func TestReportsThatAreIgnored(t *testing.T) {
+	fx := newFixture(t)
+	share := fx.shareFS()
+	armed := fx.arm(example.Name)
+
+	// Armed, not yet booted: no installation to report on.
+	fs.Stat(share, ReportPrefix+armed.Token+".share-connected")
+	if c := fx.client(); c.State != state.Armed || c.Stage != "" {
+		t.Fatalf("a report before the installation: %+v", c)
+	}
+	fx.get(testQuery)
+	token := armed.Token
+	for _, bad := range []string{
+		ReportPrefix + token,
+		ReportPrefix + token + ".",
+		ReportPrefix + token + ".provisioned",
+		ReportPrefix + token + ".SHARE-CONNECTED",
+		ReportPrefix + token + ".share-connected.x",
+		ReportPrefix + token + ".setup-failed.1.2",
+		ReportPrefix + token + ".setup-failed.999999999999",
+		ReportPrefix + token + ".share-connected\r\nx",
+		ReportPrefix + strings.Repeat("0", 32) + ".share-connected",
+		ReportPrefix + token[:31] + ".share-connected",
+		ReportPrefix + strings.ToUpper(token) + ".share-connected",
+		ReportPrefix + "../" + token + ".share-connected",
+		"KYRO-REPORT." + token + ".share-connected",
+	} {
+		fs.Stat(share, bad)
+		share.Open(bad)
+		if c := fx.client(); c.State != state.Installing || c.Stage != state.StageInstallerSent {
+			t.Fatalf("%q changed the record: %s, stage %q", bad, c.State, c.Stage)
+		}
+	}
+
+	// Reports are limited in number: each costs a look at every record.
+	for i := 0; i < 200; i++ {
+		fs.Stat(share, ReportPrefix+strings.Repeat("0", 32)+".share-connected")
+	}
+	fs.Stat(share, ReportPrefix+token+".share-connected")
+	if c := fx.client(); c.Stage != state.StageInstallerSent {
+		t.Errorf("a report beyond the limit was recorded: stage %q", c.Stage)
+	}
+}
+
 func TestInstallationFiles(t *testing.T) {
 	fx := newFixture(t)
 	armed := fx.arm(example.Name)
@@ -657,7 +823,7 @@ func TestExpire(t *testing.T) {
 }
 
 func TestStartScriptPort(t *testing.T) {
-	good := startParams{Address: "10.0.0.1", Port: 4445, Username: "kyro", Password: "pw", Image: "win11", Install: "sources/install.esd", Extras: []string{"sources/ei.cfg", "sources/PID.txt"}}
+	good := startParams{Token: "0123456789abcdef0123456789abcdef", Address: "10.0.0.1", Port: 4445, Username: "kyro", Password: "pw", Image: "win11", Install: "sources/install.esd", Extras: []string{"sources/ei.cfg", "sources/PID.txt"}}
 	out, err := startScript(good)
 	if err != nil {
 		t.Fatal(err)
@@ -676,12 +842,13 @@ func TestStartScriptPort(t *testing.T) {
 // TestScriptsRefuseUnsafeValues: nothing that could end a line or start a
 // command gets into a script, whatever the configuration or an ISO says.
 func TestScriptsRefuseUnsafeValues(t *testing.T) {
-	good := startParams{Address: "10.0.0.1", Port: 445, Username: "kyro", Password: "pw", Image: "win11", Install: "sources/install.wim"}
+	good := startParams{Token: "0123456789abcdef0123456789abcdef", Address: "10.0.0.1", Port: 445, Username: "kyro", Password: "pw", Image: "win11", Install: "sources/install.wim"}
 	for _, bad := range []string{"", "a b", "a&calc", "a|b", "a%PATH%", "a^b", "a\r\nformat c:", `a"b`, "a>b", "..", "-x", "a;b", "a\x00"} {
 		for name, edit := range map[string]func(*startParams){
 			"address":  func(p *startParams) { p.Address = bad },
 			"username": func(p *startParams) { p.Username = bad },
 			"password": func(p *startParams) { p.Password = bad },
+			"token":    func(p *startParams) { p.Token = bad },
 			"image":    func(p *startParams) { p.Image = bad },
 			"install":  func(p *startParams) { p.Install = "sources/" + bad },
 			"extra":    func(p *startParams) { p.Extras = []string{"sources/" + bad} },
@@ -848,7 +1015,7 @@ func TestScriptErrorsDoNotQuoteSecrets(t *testing.T) {
 	if _, err := installScript("http://192.0.2.1", secret, "image", "profile", false); err == nil || strings.Contains(err.Error(), secret) {
 		t.Errorf("token: %v", err)
 	}
-	_, err := startScript(startParams{Address: "192.0.2.1", Port: 445, Username: "kyro", Password: secret, Image: "image", Install: "sources/install.wim"})
+	_, err := startScript(startParams{Token: "0123456789abcdef0123456789abcdef", Address: "192.0.2.1", Port: 445, Username: "kyro", Password: secret, Image: "image", Install: "sources/install.wim"})
 	if err == nil || strings.Contains(err.Error(), secret) {
 		t.Errorf("password: %v", err)
 	}

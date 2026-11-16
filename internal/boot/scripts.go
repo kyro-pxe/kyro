@@ -25,6 +25,7 @@ import (
 	"strings"
 
 	"github.com/kyro-pxe/kyro/internal/drivers"
+	"github.com/kyro-pxe/kyro/internal/state"
 )
 
 // ShareName is the name of the install share. Every image is a directory
@@ -123,12 +124,21 @@ const driversCabinet = drivers.CabinetName
 // drivers it finds there to the system it installs.
 const driversDir = `X:\$WinPEDriver$`
 
+// ReportPrefix starts the names under which the start script reports on
+// the install share: kyro-report.<token>.<event>, and for a failure of
+// Setup kyro-report.<token>.setup-failed.<exit code>. Names of images have
+// no dots, so no image can be called like that.
+const ReportPrefix = "kyro-report."
+
 // winpeshl is the file that makes Windows PE run Kyro's start script in
 // place of Setup.
 const winpeshl = "[LaunchApps]\r\n%SYSTEMROOT%\\System32\\cmd.exe, /c %SYSTEMROOT%\\System32\\kyro-start.cmd\r\n"
 
 // startParams is what the start script needs to know.
 type startParams struct {
+	// Token is the token of the installation. The script reports its
+	// progress under it.
+	Token    string
 	Address  string // Kyro's address
 	Port     int    // of the SMB server
 	Username string
@@ -153,6 +163,9 @@ func startScript(p startParams) ([]byte, error) {
 	if !scriptWord.MatchString(p.Password) {
 		return nil, errors.New("refusing to write the password of the install share into the start script: it has characters that do not belong in one")
 	}
+	if !scriptWord.MatchString(p.Token) {
+		return nil, errors.New("refusing to write the installation token into the start script: it has characters that do not belong in one")
+	}
 	for _, path := range append([]string{p.Install}, p.Extras...) {
 		if !scriptPath.MatchString(path) {
 			return nil, fmt.Errorf("refusing to write the path %q into the start script", path)
@@ -169,12 +182,19 @@ func startScript(p startParams) ([]byte, error) {
 		// PE cannot, and fails here.
 		netUse += fmt.Sprintf(" /TCPPORT:%d", p.Port)
 	}
+	// A report: the script tries to read a file on the share whose name
+	// says what happened. There is no such file; Kyro notes that it was
+	// asked for. Windows PE has no program that could send an HTTP request.
+	report := func(event string) string {
+		return `set /p KYRO_NONE=<%KYRO_REPORT%.` + event + ` 2>nul`
+	}
 	lines := []string{
 		`@echo off`,
 		`rem Written by Kyro for one installation. Windows PE runs this in place of`,
 		`rem Setup. It connects the install share and starts Setup from there.`,
 		`set KYRO_SHARE=\\` + p.Address + `\` + ShareName,
 		`set KYRO_SRC=%KYRO_SHARE%\` + p.Image,
+		`set KYRO_REPORT=%KYRO_SHARE%\` + ReportPrefix + p.Token,
 		`echo.`,
 		`echo Kyro: starting the network`,
 		`wpeinit`,
@@ -201,6 +221,7 @@ func startScript(p startParams) ([]byte, error) {
 		`goto connect`,
 		`:connected`,
 		`echo Kyro: connected to %KYRO_SHARE%`,
+		report(state.EventShareConnected),
 	}
 	// Setup started from the RAM disk does not look for these two on the
 	// share. They decide the edition and the product key.
@@ -210,8 +231,10 @@ func startScript(p startParams) ([]byte, error) {
 	}
 	lines = append(lines,
 		`echo Kyro: starting Windows Setup`,
+		report(state.EventSetupStarted),
 		`X:\sources\setup.exe /installfrom:%KYRO_SRC%\`+win(p.Install)+` /unattend:X:\Windows\System32\autounattend.xml`,
 		`if errorlevel 1 goto setupfailed`,
+		report(state.EventSetupFinished),
 		`wpeutil reboot`,
 		`goto :eof`,
 		`:noshare`,
@@ -220,6 +243,8 @@ func startScript(p startParams) ([]byte, error) {
 		netUse,
 		`goto stopped`,
 		`:setupfailed`,
+		`set KYRO_RC=%ERRORLEVEL%`,
+		report(state.EventSetupFailed+`.%KYRO_RC%`),
 		`echo.`,
 		`echo Kyro: Windows Setup ended with an error. Its logs are in X:\Windows\Panther.`,
 		`:stopped`,

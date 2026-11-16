@@ -20,6 +20,7 @@ package boot
 
 import (
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"net/http"
 	"time"
@@ -45,7 +46,14 @@ type ClientView struct {
 	StartedAt  *time.Time `json:"started_at,omitempty"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
 	LastSeen   *time.Time `json:"last_seen,omitempty"`
-	Failure    string     `json:"failure,omitempty"`
+	// Stage is how far the installation has come, StageAt since when, and
+	// Restarts how often Setup has restarted the machine. Progress says
+	// the same in words while the installation runs.
+	Stage    string     `json:"stage,omitempty"`
+	StageAt  *time.Time `json:"stage_at,omitempty"`
+	Restarts int        `json:"restarts,omitempty"`
+	Progress string     `json:"progress,omitempty"`
+	Failure  string     `json:"failure,omitempty"`
 }
 
 // View turns a client record into what may be shown.
@@ -54,7 +62,17 @@ func View(c state.Client) ClientView {
 		Client: c.Key.String(), State: string(c.State), Image: c.Image, Profile: c.Profile,
 		UUID: c.Seen.UUID, Serial: c.Seen.Serial, LastAddr: c.LastAddr, Boots: c.Boots,
 		ArmedAt: c.ArmedAt, StartedAt: c.StartedAt, FinishedAt: c.FinishedAt, LastSeen: c.LastSeen,
+		Stage: string(c.Stage), StageAt: c.StageAt, Restarts: c.Restarts,
 		Failure: c.Failure,
+	}
+	if c.State == state.Installing {
+		v.Progress = stageText(c.Stage)
+		if c.Stage == state.StageRestarted {
+			v.Progress = fmt.Sprintf("Setup restarted the machine %d times; waiting for the installed system to call back", c.Restarts)
+			if c.Restarts == 1 {
+				v.Progress = "Setup restarted the machine once; waiting for the installed system to call back"
+			}
+		}
 	}
 	if c.State == state.Armed {
 		// A record from before armings ran out does not say until when;
@@ -105,7 +123,7 @@ p.note { color: #555; max-width: 46rem; }
 <tr><th>Client</th><th>State</th><th>Image</th><th>Profile</th><th>MAC</th><th>Serial</th><th>Last seen (UTC)</th><th>Note</th></tr>
 {{range .Clients}}<tr>
 <td>{{.Client}}</td><td class="s {{.State}}">{{.State}}</td><td>{{.Image}}</td><td>{{.Profile}}</td>
-<td>{{.MAC}}</td><td>{{.Serial}}</td><td>{{when .LastSeen}}</td><td>{{if .ArmedUntil}}armed until {{when .ArmedUntil}} UTC{{else}}{{.Failure}}{{end}}</td>
+<td>{{.MAC}}</td><td>{{.Serial}}</td><td>{{when .LastSeen}}</td><td>{{if .ArmedUntil}}armed until {{when .ArmedUntil}} UTC{{else if .Progress}}{{.Progress}}, since {{when .StageAt}} UTC{{else}}{{.Failure}}{{end}}</td>
 </tr>
 {{end}}</table>
 {{else}}

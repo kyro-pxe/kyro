@@ -158,7 +158,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger, opts Options)
 	// The install share.
 	if cfg.SMB.Mode == "embedded" {
 		smb, err := smbshare.New(smbshare.Config{
-			Shares:   map[string]fs.FS{boot.ShareName: tree},
+			Shares:   map[string]fs.FS{boot.ShareName: svc.ShareFS(tree)},
 			Username: cfg.SMB.Username,
 			Password: cfg.SMB.Password,
 			Logger:   log.With("service", "smb"),

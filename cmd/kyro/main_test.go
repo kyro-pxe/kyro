@@ -442,3 +442,29 @@ func TestDriverFetch(t *testing.T) {
 	wants(t, c.fails(2, "driver", "fetch", "nvidia"), "does not know where to get")
 	wants(t, c.fails(2, "driver", "fetch", "virtio", "intel-rst"), "name one driver pack")
 }
+
+// TestClientsShowProgress: while an installation runs, the list says how
+// far it has come.
+func TestClientsShowProgress(t *testing.T) {
+	c := newCLI(t)
+	c.ok("image", "add", imagetest.Write(t), "--name", "win11")
+	c.ok("profile", "import", "--example")
+	c.ok("arm", "52:54:00:77:00:01", "--image", "win11", "--profile", "kyro-example", "--confirm-wipe")
+
+	// What the service would have written by now.
+	path := filepath.Join(c.data, "state", "mac-525400770001.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rec map[string]any
+	json.Unmarshal(raw, &rec)
+	now := time.Now().UTC().Format(time.RFC3339)
+	rec["state"], rec["started_at"], rec["stage"], rec["stage_at"], rec["restarts"] = "installing", now, "restarted", now, 2
+	raw, _ = json.Marshal(rec)
+	os.WriteFile(path, raw, 0o640)
+
+	wants(t, c.ok("clients"), "installing", "Setup restarted the machine 2 times; waiting for the installed system to call back (since 20")
+	out := c.ok("clients", "--json")
+	wants(t, out, `"stage": "restarted"`, `"restarts": 2`, `"progress": "Setup restarted the machine 2 times`)
+}
