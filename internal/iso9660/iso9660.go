@@ -16,17 +16,21 @@
 // You should have received a copy of the GNU General Public License along
 // with Kyro. If not, see <https://www.gnu.org/licenses/>.
 
-// Package iso9660 finds files in an ISO 9660 image with Joliet names.
+// Package iso9660 finds files in an ISO 9660 image.
 //
 // It exists for one purpose: to take a handful of driver files out of an
 // ISO that is read over the network, a few sectors at a time, without
 // downloading all of it. Windows ISOs are UDF and are read by package udf.
 //
-// Only what that needs is here: the Joliet directory tree, looked up by
-// path. No Rock Ridge, no files in several extents, no interleaving.
+// Only what that needs is here: a directory tree, looked up by path. The
+// names come from the Joliet tree if the image has one, and otherwise from
+// the plain ISO 9660 tree as they are written there, which in images made
+// with long, untranslated names (ISO 9660 level 4) are the real names. No
+// Rock Ridge, no files in several extents, no interleaving.
 package iso9660
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -52,6 +56,9 @@ type Image struct {
 	r    io.ReaderAt
 	size int64
 	root entry
+	// joliet says that names are UCS-2, as in a Joliet tree, and not
+	// bytes.
+	joliet bool
 }
 
 type entry struct {
@@ -61,10 +68,10 @@ type entry struct {
 	dir    bool
 }
 
-// Open reads the volume descriptors of an image of the given size and
-// fails if it has no Joliet directory tree.
+// Open reads the volume descriptors of an image of the given size.
 func Open(r io.ReaderAt, size int64) (*Image, error) {
 	buf := make([]byte, sector)
+	var plain, joliet []byte
 	for i := int64(0); i < maxDescriptors; i++ {
 		if _, err := r.ReadAt(buf, (16+i)*sector); err != nil {
 			return nil, fmt.Errorf("reading the volume descriptors: %w", err)
@@ -73,15 +80,24 @@ func Open(r io.ReaderAt, size int64) (*Image, error) {
 			return nil, errors.New("not an ISO 9660 image")
 		}
 		switch buf[0] {
-		case 255: // terminator
-			return nil, errors.New("the image has no Joliet names, which this reader needs")
-		case 2: // supplementary volume descriptor; Joliet says so in its escape sequences
-			esc := string(buf[88:91])
-			if esc != "%/@" && esc != "%/C" && esc != "%/E" {
-				continue
+		case 1: // primary volume descriptor
+			if plain == nil {
+				plain = bytes.Clone(buf[156:190])
 			}
-			im := &Image{r: r, size: size}
-			root, err := im.parse(buf[156:190])
+		case 2: // supplementary; Joliet says so in its escape sequences
+			if esc := string(buf[88:91]); joliet == nil && (esc == "%/@" || esc == "%/C" || esc == "%/E") {
+				joliet = bytes.Clone(buf[156:190])
+			}
+		case 255: // terminator
+			im := &Image{r: r, size: size, joliet: joliet != nil}
+			rec := plain
+			if im.joliet {
+				rec = joliet
+			}
+			if rec == nil {
+				return nil, errors.New("the image has no directory tree")
+			}
+			root, err := im.parse(rec)
 			if err != nil || !root.dir {
 				return nil, errors.New("the root directory of the image is damaged")
 			}
@@ -89,7 +105,7 @@ func Open(r io.ReaderAt, size int64) (*Image, error) {
 			return im, nil
 		}
 	}
-	return nil, errors.New("the image has no Joliet names, which this reader needs")
+	return nil, errors.New("the volume descriptors of the image do not end")
 }
 
 // parse reads one directory record.
@@ -114,6 +130,8 @@ func (im *Image) parse(rec []byte) (entry, error) {
 		e.name = "."
 	case len(name) == 1 && name[0] == 1:
 		e.name = ".."
+	case !im.joliet:
+		e.name = string(name)
 	case len(name)%2 != 0:
 		return entry{}, errors.New("a file name of the image is damaged")
 	default:
@@ -122,9 +140,15 @@ func (im *Image) parse(rec []byte) (entry, error) {
 			units[i] = binary.BigEndian.Uint16(name[2*i:])
 		}
 		e.name = string(utf16.Decode(units))
-		// Files carry a version: "NAME.EXT;1".
-		if i := strings.LastIndexByte(e.name, ';'); i >= 0 && !e.dir {
+	}
+	if !e.dir {
+		// Files can carry a version, "NAME.EXT;1", and a name without an
+		// extension can end in a dot.
+		if i := strings.LastIndexByte(e.name, ';'); i >= 0 {
 			e.name = e.name[:i]
+		}
+		if !im.joliet {
+			e.name = strings.TrimSuffix(e.name, ".")
 		}
 	}
 	return e, nil

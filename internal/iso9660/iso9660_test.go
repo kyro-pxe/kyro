@@ -14,11 +14,14 @@ import (
 	"testing"
 )
 
-// fixture is testdata/tree.iso.gz, made with
+// The fixtures were made with genisoimage, the program that also makes the
+// image this reader is used on, from one tree:
 //
-//	genisoimage -J -R -V KYROTEST -o tree.iso tree
+//	tree.iso:    genisoimage -J -R -V KYROTEST -o tree.iso tree
+//	level4.iso:  genisoimage -iso-level 4 -R -V KYROTEST -o level4.iso tree
 //
-// the program that also makes the image this reader is used on. The tree:
+// The first has Joliet names. The second has none; its plain names are the
+// real ones, as in the virtio-win image. The tree:
 //
 //	NetKVM/w11/amd64/netkvm.inf   "the inf\r\n"
 //	NetKVM/w11/amd64/netkvm.sys   5000 bytes, byte i is i%251
@@ -26,9 +29,13 @@ import (
 //	Dir With Spaces/A File.txt    "spaces"
 //	license.txt                   "license"
 //	many/a-rather-long-file-name-number-<1..90>.bin   "file <n>"
-func fixture(t testing.TB) []byte {
+func fixture(t testing.TB) []byte { return load(t, "tree.iso.gz") }
+
+var fixtures = []string{"tree.iso.gz", "level4.iso.gz"}
+
+func load(t testing.TB, name string) []byte {
 	t.Helper()
-	f, err := os.Open("testdata/tree.iso.gz")
+	f, err := os.Open("testdata/" + name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +61,12 @@ func open(t testing.TB, data []byte) *Image {
 }
 
 func TestReadFile(t *testing.T) {
-	im := open(t, fixture(t))
+	for _, name := range fixtures {
+		t.Run(name, func(t *testing.T) { testReadFile(t, open(t, load(t, name))) })
+	}
+}
+
+func testReadFile(t *testing.T, im *Image) {
 	sys := make([]byte, 5000)
 	for i := range sys {
 		sys[i] = byte(i % 251)
@@ -85,7 +97,12 @@ func TestReadFile(t *testing.T) {
 }
 
 func TestNotFound(t *testing.T) {
-	im := open(t, fixture(t))
+	for _, name := range fixtures {
+		t.Run(name, func(t *testing.T) { testNotFound(t, open(t, load(t, name))) })
+	}
+}
+
+func testNotFound(t *testing.T, im *Image) {
 	for _, path := range []string{
 		"", "/", "missing.txt", "NetKVM", "NetKVM/w11", "NetKVM/w11/amd64/", "NetKVM/w11/amd64/missing.sys",
 		"license.txt/x", "/license.txt", "NetKVM//w11", "../license.txt", "NetKVM/../license.txt", "license.txt;1",
@@ -111,18 +128,21 @@ func TestOpenRejects(t *testing.T) {
 		{"zeros", make([]byte, 40*sector), "not an ISO 9660 image"},
 		{"text", bytes.Repeat([]byte("not an image "), 10000), "not an ISO 9660 image"},
 	}
-	// Without Joliet: the supplementary descriptor turned into something else.
-	plain := bytes.Clone(good)
-	for i := 16; i < 16+maxDescriptors; i++ {
-		if d := plain[i*sector:]; d[0] == 2 {
-			d[88] = 'x'
-		}
+	// Descriptors that never end, and an image without a directory tree.
+	endless := bytes.Clone(good)
+	for i := 16; i < len(endless)/sector; i++ {
+		copy(endless[i*sector:], good[17*sector:18*sector])
 	}
-	tests = append(tests, struct {
+	noTree := bytes.Clone(good)
+	for i := 16; noTree[i*sector] != 255; i++ {
+		noTree[i*sector] = 3
+	}
+	type test = struct {
 		name string
 		data []byte
 		want string
-	}{"no Joliet", plain, "no Joliet names"})
+	}
+	tests = append(tests, test{"endless descriptors", endless, "do not end"}, test{"no tree", noTree, "no directory tree"})
 	for _, tt := range tests {
 		if _, err := Open(bytes.NewReader(tt.data), int64(len(tt.data))); err == nil || !strings.Contains(err.Error(), tt.want) {
 			t.Errorf("%s: %v, want an error with %q", tt.name, err, tt.want)
@@ -155,8 +175,12 @@ func FuzzFind(f *testing.F) {
 	good := fixture(f)
 	f.Add(uint32(16*sector+156+2), byte(0xff), "license.txt")
 	f.Add(uint32(18*sector), byte(0), "NetKVM/w11/amd64/netkvm.sys")
+	level4 := load(f, "level4.iso.gz")
 	f.Fuzz(func(t *testing.T, at uint32, value byte, path string) {
 		data := bytes.Clone(good)
+		if at%2 == 1 {
+			data = bytes.Clone(level4)
+		}
 		data[int(at)%len(data)] = value
 		im, err := Open(bytes.NewReader(data), int64(len(data)))
 		if err != nil {
