@@ -17,7 +17,7 @@ OVMF) with one ISO, the Windows 11 Enterprise evaluation. Nothing was tried
 on physical hardware.
 
 The end-to-end test (`make e2e`, [scripts/e2e](../scripts/e2e/README.md)) is
-referred to as "e2e" below. It passed seven times:
+referred to as "e2e" below. It passed eight times:
 
 | Date | Variant | Time |
 | ---- | ------- | ---- |
@@ -28,6 +28,7 @@ referred to as "e2e" below. It passed seven times:
 | 2026-11-14 | Secure Boot enforced, Kyro's defaults (signed shim and iPXE), recorded in real time | 31 minutes |
 | 2026-11-14 | Secure Boot off on the machines, Kyro's defaults (signed shim and iPXE) | 27 minutes |
 | 2026-11-16 | Secure Boot enforced, Kyro's defaults, with the step for an arming that runs out | 33 minutes |
+| 2026-11-16 | Secure Boot enforced, machines with a virtio network card and a virtio SCSI controller, with the driver packs `virtio` and `intel-rst` | 27 minutes |
 
 The first, second and fourth run used the unsigned iPXE, which is now what
 `secure_boot: false` gives. The last two are what Kyro does by default.
@@ -76,7 +77,10 @@ The first, second and fourth run used the unsigned iPXE, which is now what
 | Detecting that a profile wipes a disk | tested | Declared in the bundle, or detected in the XML; a bare answer file counts as wiping. Unit tests. |
 | Menu of images and profiles for a person at the client | planned | By design no menu can start an installation in this version. |
 | Hardware requirement bypass (LabConfig) per image | planned | Opt-in, see ADR 0001. Until then your answer file has to deal with it. |
-| NIC driver injection | planned | |
+| Driver packs for Windows PE and the installed system (`kyro driver add`) | tested | Not in v0.1.0-alpha. Unit tests; one e2e run on a virtual machine with a virtio network card and a virtio SCSI controller: Windows PE loaded the packs, the installation finished, and the drivers were in the driver store of the installed Windows. Without packs the same machine stopped in Windows PE, unable to reach the share. All packs go to every installation. [ADR 0007](adr/0007-drivers.md). |
+| Fetching driver packs from their makers (`kyro driver fetch`) | tested | Not in v0.1.0-alpha. `intel-rst`, `intel-rst-11`, `virtio`, with pinned checksums. Unit tests against local servers; each was fetched from its maker once by hand. |
+| Intel VMD storage driver on real hardware | working | The pack `intel-rst` was loaded by Windows PE in a virtual machine and arrived in the installed Windows. No machine with an Intel VMD controller was tried, so whether Setup then finds the disk is untested. `intel-rst-11` was only fetched. |
+| Driver packs per client or per image | planned | |
 | External SMB server (`smb.mode: external`) | planned | |
 | SMB port other than 445 | working | `smb.port`. Works with Windows PE of 24H2 and later only; verified by hand in the spike for one build, not in e2e. |
 

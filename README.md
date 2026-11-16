@@ -129,10 +129,41 @@ A read-only status page is at `http://127.0.0.1:8080` on the server.
 To take an arming back: `kyro disarm <client>`. To install the same machine
 again: arm it again.
 
+## Drivers
+
+Windows PE has the drivers that Microsoft ships. If it has none for the
+network card of a machine, the installation stops when it connects to the
+install share; if it has none for the disk controller, Setup finds no disk.
+The usual case is Intel VMD, which many machines with Intel processors of
+the 11th generation and later have switched on.
+
+Kyro hands driver packs to Windows PE, which loads them, and leaves them
+where Windows Setup looks for drivers to add to the installed system. It
+changes nothing in the Windows ISO.
+
+```sh
+sudo kyro driver fetch                                # what Kyro can download
+sudo kyro driver fetch intel-rst --accept-license     # Intel VMD, 12th to 15th generation
+sudo kyro driver fetch virtio                         # virtual machines (KVM, Proxmox)
+sudo kyro driver add /path/to/unpacked/driver         # any other driver with .inf files
+sudo kyro driver list
+```
+
+`kyro driver fetch` downloads fixed versions from the maker's own server
+and checks every file against a checksum compiled into Kyro. Nothing of it
+is part of Kyro. Intel lets nobody download its driver without accepting
+the Intel Software License Agreement; `--accept-license` is your statement
+that you have read and accept it, and `install.sh` asks the same question.
+
+Every installation is given all stored packs. A driver is code that runs
+with full rights on every machine it is loaded on: add drivers from the
+maker of the hardware only. [ADR 0007](docs/adr/0007-drivers.md) has the
+details and what was tested.
+
 ## Known limitations
 
 - **Tested in virtual machines only.** One ISO (Windows 11 Enterprise
-  evaluation), QEMU with OVMF, seven full runs. No physical hardware, no other
+  evaluation), QEMU with OVMF, eight full runs. No physical hardware, no other
   editions or languages.
 - **Secure Boot works in virtual machines; real hardware is untried.** By
   default Kyro hands UEFI clients the shim and the iPXE that the iPXE
@@ -146,8 +177,14 @@ again: arm it again.
 - **Linux server only**, x86-64.
 - **An existing DHCP server is required.** `dhcp.mode: full` is not
   implemented.
-- **Network drivers.** Windows PE must have a driver for the client's
-  network card. Kyro cannot add drivers yet.
+- **Drivers are tested in virtual machines only.** Kyro can give Windows PE
+  and the installed system drivers that Windows lacks
+  ([Drivers](#drivers)). That was tested with virtio hardware in a virtual
+  machine. The Intel VMD driver was loaded there and arrived in the
+  installed Windows, but no machine with an Intel VMD controller was
+  tried.
+- **Every installation gets every driver pack.** Packs cannot be chosen
+  per machine yet, and the two Intel packs cannot be stored together.
 - **No authentication of clients.** A machine is selected by the MAC
   address, UUID or serial number it claims. Another machine on the boot
   network can claim it and receives the installer and the answer file.

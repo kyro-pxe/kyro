@@ -69,6 +69,7 @@ sudo sh install.sh --tarball kyro_0.1.0-alpha_linux_amd64.tar.gz --checksums SHA
 | Creates directories | See the table below |
 | Writes the configuration | `/etc/kyro/config.yaml`, only if there is none. The password of the install share is generated. |
 | Fetches iPXE and wimboot | With `kyro bootfiles fetch`, from their own release pages, checked against checksums compiled into Kyro. Skip with `--no-bootfiles`. |
+| Offers Intel's storage driver | Asks whether to download the Intel RST (VMD) driver from Intel, which needs your acceptance of Intel's license; "yes" is the default answer. Without a terminal it is skipped unless you pass `--accept-intel-license`. `--no-drivers` skips the question. See [Drivers](#drivers). |
 | Installs the service | `/etc/systemd/system/kyro.service` |
 | Runs `kyro doctor` | And shows the result |
 | Starts the service | Only if `kyro doctor` found no problem, and not with `--no-start` |
@@ -89,11 +90,12 @@ it was running. That is also how to upgrade.
 | `/var/lib/kyro` | `root:kyro` | 0750 | |
 | `/var/lib/kyro/images` | `root:kyro` | 0750 | ISOs and what Kyro knows about them |
 | `/var/lib/kyro/profiles` | `root:kyro` | 0750 | Answer files |
+| `/var/lib/kyro/drivers` | `root:kyro` | 0750 | Driver packs |
 | `/var/lib/kyro/boot` | `root:kyro` | 0750 | iPXE and wimboot |
 | `/var/lib/kyro/state` | `kyro:kyro` | 0750 | One record per client |
 
-The service reads all of it and writes only `state`. Images, profiles and
-boot files are changed with the `kyro` command, as root.
+The service reads all of it and writes only `state`. Images, profiles,
+driver packs and boot files are changed with the `kyro` command, as root.
 
 An ISO added with `--link` stays where it is. The user `kyro` must be able
 to read it; `kyro doctor` does not check that yet.
@@ -154,6 +156,43 @@ journalctl -u kyro -f             # watch the log
 
 The [README](../README.md#quick-start) walks through this with the example
 profile.
+
+## Drivers
+
+Many machines with Intel processors of the 11th generation and later have
+"VMD" switched on in their firmware, and Windows Setup finds no disk on
+them without Intel's storage driver. The installer offers to download it:
+
+```
+Intel's storage driver (Intel RST/VMD)
+  ...
+  Intel offers it under the Intel Software License Agreement:
+    https://www.intel.com/content/www/us/en/download/930427/
+Download it and accept that license? (Y/n)
+```
+
+Answering yes is your acceptance of Intel's license. The driver comes from
+Intel's server, is checked against checksums compiled into Kyro, and is
+then given to every installation. It is not part of Kyro.
+
+Later, or for other hardware:
+
+```sh
+kyro driver fetch                                  # what Kyro can download
+kyro driver fetch intel-rst --accept-license       # Intel, 12th to 15th generation
+kyro driver fetch intel-rst-11 --accept-license    # Intel, 11th generation (not together with intel-rst)
+kyro driver fetch virtio                           # virtual machines
+kyro driver add /path/to/unpacked/driver           # your own
+kyro driver remove intel-rst
+```
+
+Without Internet access on the server, download the file named by `kyro
+driver fetch` elsewhere and pass it with `--from`.
+
+What was tested and what was not is in
+[ADR 0007](adr/0007-drivers.md): the mechanism was tested in a virtual
+machine, the Intel driver was never tried on a machine with an Intel VMD
+controller.
 
 ## Docker
 

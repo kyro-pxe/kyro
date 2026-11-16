@@ -73,6 +73,16 @@ projects are included in this repository.
   * wimboot  https://github.com/ipxe/wimboot
              Licensed under the GNU General Public License, version 2.
 
+  * Drivers  'kyro driver fetch' downloads driver packages from their
+             makers' servers to the machine Kyro runs on, at the request
+             of its administrator. None of them is part of this repository
+             or of Kyro's releases, and Kyro passes none of them on.
+               - Intel Rapid Storage Technology driver, from Intel, under
+                 the Intel Software License Agreement, which Intel
+                 requires to be accepted before the download.
+               - virtio-win drivers, from the virtio-win project, under
+                 the BSD 3-Clause license.
+
   * shim     https://github.com/ipxe/shim, the iPXE project's build of
              https://github.com/rhboot/shim. It is part of the iPXE release
              archive and is used only when Secure Boot is switched on in

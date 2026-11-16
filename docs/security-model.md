@@ -93,6 +93,23 @@ These are protections against mistakes, not against attackers.
 - **A damaged record stops the service from answering boots**, rather than
   guessing a state.
 
+## Driver packs
+
+A driver is code that runs with full rights, in Windows PE and in the
+installed Windows of every machine Kyro installs.
+
+- Kyro gives every installation all stored packs. Whoever can write
+  `<data_dir>/drivers` decides what runs on those machines. The directory
+  belongs to root.
+- `kyro driver add` copies what it is given and does not judge it.
+- `kyro driver fetch` downloads fixed versions from the maker and checks
+  every file against a checksum compiled into Kyro. That shows the files
+  are the ones this version of Kyro was written against, nothing more.
+- Kyro does not check driver signatures. Windows PE and Windows do.
+- Like everything else, the packs travel to the client over plain HTTP.
+  Someone who can change traffic on the boot network can change them, as
+  they can change the installer itself.
+
 ## The installation token
 
 Each arming creates a random 128-bit token. The files of that installation

@@ -52,6 +52,9 @@ installed Windows
 5. **wimboot and Windows PE.** iPXE loads wimboot, `boot.wim` out of the
    ISO, a start script and the rendered answer file, all under a path that
    contains the token of this one installation.
+   If driver packs are stored, iPXE also loads them, as one cabinet file.
+   The start script unpacks it and loads the drivers before it needs the
+   network ([ADR 0007](adr/0007-drivers.md)).
 6. **Setup.** The start script maps the install share and starts
    `setup.exe` from RAM with the answer file and `install.wim` from the
    share ([ADR 0001](adr/0001-windows-install-source.md)).
@@ -73,6 +76,9 @@ installed Windows
 | `internal/udf` | Reads files out of an ISO without mounting it |
 | `internal/wim` | Reads edition names out of a WIM file |
 | `internal/profiles` | The profile store, validation, token substitution ([ADR 0002](adr/0002-profiles.md)) |
+| `internal/drivers` | The store of driver packs, and fetching well-known packs from their makers ([ADR 0007](adr/0007-drivers.md)) |
+| `internal/cab` | Writes the cabinet in which the driver packs travel to Windows PE |
+| `internal/iso9660` | Finds files in an ISO 9660 image that is read over the network |
 | `internal/smbshare` | Read-only SMB server ([ADR 0003](adr/0003-smb-server-library.md)) |
 | `internal/bootfiles` | Downloads iPXE and wimboot and checks them against compiled-in checksums |
 | `internal/doctor` | The checks of `kyro doctor` |
@@ -90,6 +96,7 @@ Everything is under `data_dir` (`/var/lib/kyro`):
 | `images/` | ISOs (or links to them) and one JSON file each | CLI |
 | `profiles/` | One directory per profile: the answer file as imported, and its metadata | CLI |
 | `boot/` | `ipxe.efi`, `undionly.kpxe`, `wimboot`, and for Secure Boot `ipxe-shim.efi` and `ipxe-signed.efi` | CLI (`kyro bootfiles fetch`) |
+| `drivers/` | One directory per driver pack: its files as added, and a list of them | CLI |
 | `state/` | One JSON file per client | CLI and service, under a file lock |
 
 The CLI works on these files directly and does not talk to the service, so
