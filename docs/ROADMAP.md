@@ -17,7 +17,7 @@ OVMF) with one ISO, the Windows 11 Enterprise evaluation. Nothing was tried
 on physical hardware.
 
 The end-to-end test (`make e2e`, [scripts/e2e](../scripts/e2e/README.md)) is
-referred to as "e2e" below. It passed nine times:
+referred to as "e2e" below. It passed ten times:
 
 | Date | Variant | Time |
 | ---- | ------- | ---- |
@@ -30,6 +30,7 @@ referred to as "e2e" below. It passed nine times:
 | 2026-11-16 | Secure Boot enforced, Kyro's defaults, with the step for an arming that runs out | 33 minutes |
 | 2026-11-16 | Secure Boot enforced, machines with a virtio network card and a virtio SCSI controller, with the driver packs `virtio` and `intel-rst` | 27 minutes |
 | 2026-11-16 | Secure Boot enforced, Kyro's defaults, with the checks of the progress reports | 29 minutes |
+| 2026-11-16 | Secure Boot enforced, Kyro's defaults, the computer name given when arming (`--set`) | 33 minutes, with other work on the machine |
 
 The first, second and fourth run used the unsigned iPXE, which is now what
 `secure_boot: false` gives. The last two are what Kyro does by default.
@@ -76,7 +77,7 @@ The first, second and fourth run used the unsigned iPXE, which is now what
 | Token substitution (`{{mac}}`, `{{serial}}`, `{{uuid}}`, `{{callback_url}}`) | tested | Unit and fuzz tests. `{{mac}}` and `{{callback_url}}` in e2e; `{{serial}}` and `{{uuid}}` in unit tests only. |
 | Warnings of a profile shown at import and when arming | tested | Unit tests. |
 | Detecting that a profile wipes a disk | tested | Declared in the bundle, or detected in the XML; a bare answer file counts as wiping. Unit tests. |
-| Values per client from the administrator (`{{var:NAME}}`, `kyro arm --set`) | tested | Not in v0.1.0-alpha. Unit tests only: no installation was run with one. Deleted from the record when the installation ends. [ADR 0002](adr/0002-profiles.md). |
+| Values per client from the administrator (`{{var:NAME}}`, `kyro arm --set`) | tested | Not in v0.1.0-alpha. Unit and fuzz tests; one e2e run in which the computer name was given with `--set`: arming without it was refused, the installed Windows asked for its address under that name, and the value was gone from the record afterwards. Values with characters that need escaping were only tried in unit tests. [ADR 0002](adr/0002-profiles.md). |
 | Menu of images and profiles for a person at the client | planned | By design no menu can start an installation in this version. |
 | Hardware requirement bypass (LabConfig) per image | planned | Opt-in, see ADR 0001. Until then your answer file has to deal with it. |
 | Driver packs for Windows PE and the installed system (`kyro driver add`) | tested | Not in v0.1.0-alpha. Unit tests; one e2e run on a virtual machine with a virtio network card and a virtio SCSI controller: Windows PE loaded the packs, the installation finished, and the drivers were in the driver store of the installed Windows. Without packs the same machine stopped in Windows PE, unable to reach the share. All packs go to every installation. [ADR 0007](adr/0007-drivers.md). |
