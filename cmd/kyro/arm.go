@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/kyro-pxe/kyro/internal/boot"
+	"github.com/kyro-pxe/kyro/internal/config"
 	"github.com/kyro-pxe/kyro/internal/images"
 	"github.com/kyro-pxe/kyro/internal/profiles"
 	"github.com/kyro-pxe/kyro/internal/state"
@@ -42,6 +43,11 @@ func (e *env) arm(args []string) error {
 client has been given the installer, it boots from its disk again until it
 is armed again.
 
+An arming does not last for ever. If the client has not booted from the
+network within the time of --expires (default: arm_timeout in the
+configuration, 24h unless changed), it is not installed and shows as
+expired.
+
 The client is named by its MAC address, its SMBIOS UUID or its serial
 number. 'kyro clients' lists the clients that have booted from this
 server, with what they reported.
@@ -50,6 +56,7 @@ server, with what they reported.
 	profile := c.String("profile", "", "profile to install with (required)")
 	confirmWipe := c.Bool("confirm-wipe", false, "confirm that this installation may wipe a disk of the client")
 	force := c.Bool("force", false, "arm a client that is being installed right now")
+	expires := c.String("expires", "", "how long the arming lasts, like 2h or 7d (1m to 30d; default: arm_timeout)")
 	pos, err := c.parse(args)
 	if err != nil {
 		return err
@@ -67,6 +74,16 @@ server, with what they reported.
 	cfg, err := c.config()
 	if err != nil {
 		return err
+	}
+
+	lifetime := time.Duration(cfg.ArmTimeout)
+	if *expires != "" {
+		if lifetime, err = config.ParseDuration(*expires); err != nil {
+			return usageErr("--expires: %v", err)
+		}
+		if lifetime < state.MinArmLifetime || lifetime > state.MaxArmLifetime {
+			return usageErr("--expires %s: %v", *expires, state.ErrLifetime)
+		}
 	}
 
 	im, err := images.Open(cfg.ImagesDir()).Get(*image)
@@ -95,14 +112,15 @@ server, with what they reported.
 	if err != nil {
 		return err
 	}
-	client, err := st.Arm(key, im.Name, p.Name, *force)
+	client, err := st.Arm(key, state.Arming{Image: im.Name, Profile: p.Name, Lifetime: lifetime}, *force)
 	if errors.Is(err, state.ErrInstalling) {
 		return fmt.Errorf("%s is being installed right now (since %s); use --force to arm it anyway", key, when(client.StartedAt))
 	}
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(e.stdout, "\nArmed: %s will be installed with image %s and profile %s on its next\nnetwork boot, once.\n\n%s\n", key, im.Name, p.Name, selectionNotice)
+	fmt.Fprintf(e.stdout, "\nArmed: %s will be installed with image %s and profile %s on its next\nnetwork boot, once.\n", key, im.Name, p.Name)
+	fmt.Fprintf(e.stdout, "The arming lasts until %s (%s). If the client has not booted from the\nnetwork by then, it is not installed.\n\n%s\n", when(client.ArmedUntil), lifetimeText(lifetime), selectionNotice)
 	if cfg.SMB.Mode != "embedded" {
 		fmt.Fprintln(e.stdout, "\nNote: the install share is switched off in the configuration (smb.mode), so the installation will fail.")
 	}
@@ -150,6 +168,19 @@ func (e *env) disarm(args []string) error {
 	return nil
 }
 
+// lifetimeText writes a lifetime the way it is typed: 36h, 7d, 90m.
+func lifetimeText(d time.Duration) string {
+	switch {
+	case d%(24*time.Hour) == 0:
+		return fmt.Sprintf("%dd", d/(24*time.Hour))
+	case d%time.Hour == 0:
+		return fmt.Sprintf("%dh", d/time.Hour)
+	case d%time.Minute == 0:
+		return fmt.Sprintf("%dm", d/time.Minute)
+	}
+	return d.String()
+}
+
 func when(t *time.Time) string {
 	if t == nil {
 		return "-"
@@ -177,8 +208,8 @@ that booted from this server without being armed.
 	if err != nil {
 		return err
 	}
-	// Installations that have run out of time show as failed even if the
-	// service is not running to notice.
+	// Installations and armings that have run out of time show as failed
+	// and expired even if the service is not running to notice.
 	if _, err := st.Expire(time.Duration(cfg.InstallTimeout)); err != nil {
 		return err
 	}
@@ -205,7 +236,11 @@ that booted from this server without being armed.
 	fmt.Fprintln(w, "CLIENT\tSTATE\tIMAGE\tPROFILE\tLAST SEEN\tMAC\tSERIAL\tNOTE")
 	for _, cl := range list {
 		v := boot.View(cl)
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", v.Client, v.State, dash(v.Image), dash(v.Profile), when(v.LastSeen), dash(v.MAC), dash(v.Serial), v.Failure)
+		note := v.Failure
+		if cl.State == state.Armed && v.ArmedUntil != nil {
+			note = "armed until " + when(v.ArmedUntil)
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", v.Client, v.State, dash(v.Image), dash(v.Profile), when(v.LastSeen), dash(v.MAC), dash(v.Serial), note)
 	}
 	return w.Flush()
 }

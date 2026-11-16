@@ -28,9 +28,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/kyro-pxe/kyro/internal/state"
 )
 
 // DefaultPath is where the configuration is looked for.
@@ -65,6 +69,10 @@ type Config struct {
 	// InstallTimeout is how long an installation may take before the
 	// client is marked as failed.
 	InstallTimeout Duration `yaml:"install_timeout"`
+	// ArmTimeout is how long a client stays armed unless 'kyro arm
+	// --expires' says otherwise. A client that has not booted from the
+	// network by then is not installed.
+	ArmTimeout Duration `yaml:"arm_timeout"`
 }
 
 // DHCP configures the DHCP service.
@@ -109,8 +117,25 @@ type Status struct {
 	Listen string `yaml:"listen"`
 }
 
-// Duration is a time.Duration that is written like "90m" in YAML.
+// Duration is a time.Duration that is written like "90m" or "7d" in YAML.
 type Duration time.Duration
+
+// ParseDuration reads a duration as Go writes it ("90m", "1h30m"), or a
+// whole number of days ("7d").
+func ParseDuration(s string) (time.Duration, error) {
+	if days, ok := strings.CutSuffix(s, "d"); ok {
+		n, err := strconv.ParseUint(days, 10, 16)
+		if err != nil {
+			return 0, fmt.Errorf("%q is not a duration like 90m, 2h or 7d", s)
+		}
+		return time.Duration(n) * 24 * time.Hour, nil
+	}
+	v, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, fmt.Errorf("%q is not a duration like 90m, 2h or 7d", s)
+	}
+	return v, nil
+}
 
 // UnmarshalYAML implements yaml.Unmarshaler.
 func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
@@ -118,9 +143,9 @@ func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
 	if err := n.Decode(&s); err != nil {
 		return err
 	}
-	v, err := time.ParseDuration(s)
+	v, err := ParseDuration(s)
 	if err != nil {
-		return fmt.Errorf("line %d: %q is not a duration like 90m or 2h", n.Line, s)
+		return fmt.Errorf("line %d: %w", n.Line, err)
 	}
 	*d = Duration(v)
 	return nil
@@ -143,6 +168,7 @@ func Default() Config {
 		SecureBoot:     true,
 		UnknownClients: "local",
 		InstallTimeout: Duration(3 * time.Hour),
+		ArmTimeout:     Duration(state.DefaultArmLifetime),
 	}
 }
 
@@ -237,6 +263,9 @@ func (c *Config) Validate() error {
 	}
 	if d := time.Duration(c.InstallTimeout); d < 10*time.Minute || d > 48*time.Hour {
 		return fmt.Errorf("install_timeout %v: use 10m to 48h", d)
+	}
+	if d := time.Duration(c.ArmTimeout); d < state.MinArmLifetime || d > state.MaxArmLifetime {
+		return fmt.Errorf("arm_timeout %v: use 1m to 30d", d)
 	}
 	return nil
 }

@@ -56,3 +56,9 @@ unknown_clients: local
 
 # A client that has not reported back after this time is marked as failed.
 install_timeout: 3h
+
+# How long a client stays armed. A client that has not booted from the
+# network by then is not installed, and 'kyro clients' shows it as expired.
+# This keeps a machine that was armed and forgotten from being wiped weeks
+# later. 'kyro arm --expires' sets it for one arming. 1m to 30d.
+arm_timeout: 24h

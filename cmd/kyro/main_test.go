@@ -22,10 +22,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kyro-pxe/kyro/internal/images/imagetest"
 )
@@ -237,7 +239,8 @@ func TestArmNeedsConfirmationToWipe(t *testing.T) {
 		"WARNING from the bundle",
 		"That is not\nauthentication",
 	)
-	wants(t, c.ok("clients"), "CLIENT", "mac:52:54:00:77:00:01", "armed", "win11", "kyro-example")
+	wants(t, out, "The arming lasts until 20", "(1d)", "it is not installed")
+	wants(t, c.ok("clients"), "CLIENT", "mac:52:54:00:77:00:01", "armed", "win11", "kyro-example", "armed until 20")
 
 	var list struct {
 		Clients []map[string]any `json:"clients"`
@@ -248,6 +251,21 @@ func TestArmNeedsConfirmationToWipe(t *testing.T) {
 	}
 	if strings.Contains(raw, "token") {
 		t.Error("clients --json shows the token")
+	}
+	armedAt, _ := time.Parse(time.RFC3339, fmt.Sprint(list.Clients[0]["armed_at"]))
+	until, err := time.Parse(time.RFC3339, fmt.Sprint(list.Clients[0]["armed_until"]))
+	if err != nil || until.Sub(armedAt) != 24*time.Hour {
+		t.Errorf("armed_at %v, armed_until %v (%v)", list.Clients[0]["armed_at"], list.Clients[0]["armed_until"], err)
+	}
+
+	// --expires sets the lifetime of one arming.
+	wants(t, c.ok("arm", mac, "--image", "win11", "--profile", "kyro-example", "--confirm-wipe", "--expires", "90m"), "(90m)")
+	raw = c.ok("clients", "--json")
+	json.Unmarshal([]byte(raw), &list)
+	armedAt, _ = time.Parse(time.RFC3339, fmt.Sprint(list.Clients[0]["armed_at"]))
+	until, _ = time.Parse(time.RFC3339, fmt.Sprint(list.Clients[0]["armed_until"]))
+	if until.Sub(armedAt) != 90*time.Minute {
+		t.Errorf("--expires 90m: armed_at %v, armed_until %v", armedAt, until)
 	}
 
 	// A bare answer file always needs the confirmation; a bundle that
@@ -264,6 +282,38 @@ func TestArmNeedsConfirmationToWipe(t *testing.T) {
 	wants(t, c.fails(1, "disarm", mac), "is not armed")
 	wants(t, c.ok("disarm", "PF2ABCDE", "--forget"), "forgotten")
 	wants(t, c.ok("clients"), "No clients yet")
+}
+
+// TestExpiredArmingInTheCLI: an arming that ran out shows as expired and
+// cannot be taken back, also when no service is running to notice.
+func TestExpiredArmingInTheCLI(t *testing.T) {
+	c := newCLI(t)
+	c.ok("image", "add", imagetest.Write(t), "--name", "win11")
+	c.ok("profile", "import", "--example")
+	mac := "52:54:00:77:00:01"
+	c.ok("arm", mac, "--image", "win11", "--profile", "kyro-example", "--confirm-wipe", "--expires", "1m")
+
+	// Move the arming into the past, as if the minute had gone by.
+	path := filepath.Join(c.data, "state", "mac-525400770001.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rec map[string]any
+	if err := json.Unmarshal(raw, &rec); err != nil {
+		t.Fatal(err)
+	}
+	rec["armed_at"] = "2026-11-01T10:00:00Z"
+	rec["armed_until"] = "2026-11-01T10:01:00Z"
+	raw, _ = json.Marshal(rec)
+	if err := os.WriteFile(path, raw, 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	wants(t, c.ok("clients"), "expired", "was armed until 2026-11-01 10:01 UTC")
+	wants(t, c.fails(1, "disarm", mac), "is not armed (its state is expired)")
+	wants(t, c.ok("arm", mac, "--image", "win11", "--profile", "kyro-example", "--confirm-wipe"), "Armed:")
+	wants(t, c.ok("clients"), "armed until 20")
 }
 
 func TestArmRejects(t *testing.T) {
@@ -284,6 +334,10 @@ func TestArmRejects(t *testing.T) {
 		{[]string{"arm", "a b c", "--image", "win11", "--profile", "kyro-example", "--confirm-wipe"}, 2, "not a MAC address"},
 		{[]string{"arm", "52:54:00:77:00:01", "--image", "missing", "--profile", "kyro-example", "--confirm-wipe"}, 1, `no image called "missing"`},
 		{[]string{"arm", "52:54:00:77:00:01", "--image", "win11", "--profile", "missing", "--confirm-wipe"}, 1, `no profile called "missing"`},
+		{[]string{"arm", "52:54:00:77:00:01", "--image", "win11", "--profile", "kyro-example", "--confirm-wipe", "--expires", "soon"}, 2, "not a duration"},
+		{[]string{"arm", "52:54:00:77:00:01", "--image", "win11", "--profile", "kyro-example", "--confirm-wipe", "--expires", "30s"}, 2, "an arming lasts between"},
+		{[]string{"arm", "52:54:00:77:00:01", "--image", "win11", "--profile", "kyro-example", "--confirm-wipe", "--expires", "31d"}, 2, "an arming lasts between"},
+		{[]string{"arm", "52:54:00:77:00:01", "--image", "win11", "--profile", "kyro-example", "--confirm-wipe", "--expires", "0"}, 2, "an arming lasts between"},
 		{[]string{"disarm"}, 2, "name one client"},
 	}
 	for _, tt := range tests {

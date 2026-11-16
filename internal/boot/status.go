@@ -41,6 +41,7 @@ type ClientView struct {
 	LastAddr   string     `json:"last_addr,omitempty"`
 	Boots      int        `json:"boots"`
 	ArmedAt    *time.Time `json:"armed_at,omitempty"`
+	ArmedUntil *time.Time `json:"armed_until,omitempty"`
 	StartedAt  *time.Time `json:"started_at,omitempty"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
 	LastSeen   *time.Time `json:"last_seen,omitempty"`
@@ -54,6 +55,15 @@ func View(c state.Client) ClientView {
 		UUID: c.Seen.UUID, Serial: c.Seen.Serial, LastAddr: c.LastAddr, Boots: c.Boots,
 		ArmedAt: c.ArmedAt, StartedAt: c.StartedAt, FinishedAt: c.FinishedAt, LastSeen: c.LastSeen,
 		Failure: c.Failure,
+	}
+	if c.State == state.Armed {
+		// A record from before armings ran out does not say until when;
+		// the store treats it as armed with the default lifetime.
+		v.ArmedUntil = c.ArmedUntil
+		if v.ArmedUntil == nil && c.ArmedAt != nil {
+			until := c.ArmedAt.Add(state.DefaultArmLifetime)
+			v.ArmedUntil = &until
+		}
 	}
 	if c.Seen.MAC != "" {
 		v.MAC = state.Key{Kind: state.KindMAC, Value: c.Seen.MAC}.Display()
@@ -82,10 +92,10 @@ table { border-collapse: collapse; }
 th, td { text-align: left; padding: .35rem .9rem .35rem 0; border-bottom: 1px solid #ddd; vertical-align: top; }
 th { font-weight: 600; }
 .s { font-weight: 600; }
-.armed { color: #8a5a00; } .installing { color: #0b57a4; } .provisioned { color: #1a7f37; } .failed { color: #b3261e; } .unknown { color: #666; }
+.armed { color: #8a5a00; } .installing { color: #0b57a4; } .provisioned { color: #1a7f37; } .failed { color: #b3261e; } .expired { color: #8a4b00; } .unknown { color: #666; }
 p.note { color: #555; max-width: 46rem; }
 @media (prefers-color-scheme: dark) { body { color: #e6e6e6; background: #161616; } th, td { border-color: #333; } p.note { color: #aaa; }
-.armed { color: #e0a84a; } .installing { color: #6aa9f0; } .provisioned { color: #5cc77c; } .failed { color: #f08a84; } .unknown { color: #999; } }
+.armed { color: #e0a84a; } .installing { color: #6aa9f0; } .provisioned { color: #5cc77c; } .failed { color: #f08a84; } .expired { color: #d9a066; } .unknown { color: #999; } }
 </style>
 </head>
 <body>
@@ -95,7 +105,7 @@ p.note { color: #555; max-width: 46rem; }
 <tr><th>Client</th><th>State</th><th>Image</th><th>Profile</th><th>MAC</th><th>Serial</th><th>Last seen (UTC)</th><th>Note</th></tr>
 {{range .Clients}}<tr>
 <td>{{.Client}}</td><td class="s {{.State}}">{{.State}}</td><td>{{.Image}}</td><td>{{.Profile}}</td>
-<td>{{.MAC}}</td><td>{{.Serial}}</td><td>{{when .LastSeen}}</td><td>{{.Failure}}</td>
+<td>{{.MAC}}</td><td>{{.Serial}}</td><td>{{when .LastSeen}}</td><td>{{if .ArmedUntil}}armed until {{when .ArmedUntil}} UTC{{else}}{{.Failure}}{{end}}</td>
 </tr>
 {{end}}</table>
 {{else}}

@@ -37,7 +37,8 @@ without anyone touching it. The installed system reports back, and
 - A machine is armed for **one** installation. Every later network boot is
   sent to the local disk, so a machine that always boots from the network
   is not reinstalled in a loop.
-- A machine that is not armed never gets an installer.
+- A machine that is not armed never gets an installer, and an arming that
+  is not used runs out (after 24 hours unless you say otherwise).
 - Kyro does not generate answer files. You bring your own, and it fills in
   per-machine values such as `{{mac}}` or `{{serial}}`.
 
@@ -104,7 +105,7 @@ sudo kyro arm 52:54:00:12:34:56 --image win11 --profile kyro-example --confirm-w
 **6. Boot the client from the network and watch.**
 
 ```sh
-sudo kyro clients          # unknown, armed, installing, provisioned, failed
+sudo kyro clients          # unknown, armed, installing, provisioned, failed, expired
 journalctl -u kyro -f
 ```
 
@@ -112,6 +113,11 @@ The state goes from `armed` to `installing` when the client fetches the
 installer, and to `provisioned` when the installed system calls back. In
 Kyro's own test runs that took 24 to 36 minutes on a virtual machine. A client
 that does not call back within `install_timeout` (3 hours) becomes `failed`.
+
+The arming lasts 24 hours. If the client has not booted from the network by
+then, it becomes `expired` and is not installed; arm it again. `kyro arm
+--expires 2h` (or `7d`, up to `30d`) sets another time for one arming, and
+`arm_timeout` in the configuration sets the default.
 
 For `provisioned` to appear, the answer file has to make the installed
 system call back. `kyro profile show kyro-example --xml` shows how the

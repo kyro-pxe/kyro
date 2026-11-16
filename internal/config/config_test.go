@@ -39,7 +39,7 @@ func TestParseAppliesDefaults(t *testing.T) {
 	if cfg.DataDir != "/var/lib/kyro" || cfg.DHCP.Mode != "proxy" || !cfg.TFTPEnabled() ||
 		cfg.HTTP.Port != 80 || cfg.SMB.Mode != "embedded" || cfg.SMB.Port != 445 || cfg.SMB.Username != "kyro" ||
 		cfg.Status.Listen != "127.0.0.1:8080" || cfg.UnknownClients != "local" ||
-		time.Duration(cfg.InstallTimeout) != 3*time.Hour {
+		time.Duration(cfg.InstallTimeout) != 3*time.Hour || time.Duration(cfg.ArmTimeout) != 24*time.Hour {
 		t.Errorf("defaults not applied: %+v", cfg)
 	}
 	if cfg.HTTPBase() != "http://192.168.77.1" {
@@ -76,12 +76,14 @@ status:
   listen: ""
 unknown_clients: menu
 install_timeout: 90m
+arm_timeout: 7d
 `))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.TFTPEnabled() || cfg.HTTPBase() != "http://10.0.0.2:8080" || cfg.Status.Listen != "" ||
-		time.Duration(cfg.DHCP.LeaseTime) != 30*time.Minute || len(cfg.DHCP.DNS) != 2 {
+		time.Duration(cfg.DHCP.LeaseTime) != 30*time.Minute || len(cfg.DHCP.DNS) != 2 ||
+		time.Duration(cfg.ArmTimeout) != 7*24*time.Hour {
 		t.Errorf("%+v", cfg)
 	}
 }
@@ -117,6 +119,9 @@ func TestParseRejects(t *testing.T) {
 		{"bad unknown_clients", base("unknown_clients: install\n"), "local or menu"},
 		{"timeout too short", base("install_timeout: 1m\n"), "install_timeout"},
 		{"timeout not a duration", base("install_timeout: soon\n"), "duration"},
+		{"arming too short", base("arm_timeout: 30s\n"), "arm_timeout"},
+		{"arming too long", base("arm_timeout: 31d\n"), "arm_timeout"},
+		{"arming not a duration", base("arm_timeout: 1.5d\n"), "duration"},
 		{"not YAML", "{{{", "yaml"},
 	}
 	for _, tt := range tests {
@@ -159,4 +164,19 @@ func FuzzParse(f *testing.F) {
 			t.Error("accepted configuration does not validate")
 		}
 	})
+}
+
+func TestDurations(t *testing.T) {
+	for in, want := range map[string]time.Duration{
+		"90m": 90 * time.Minute, "1h30m": 90 * time.Minute, "7d": 7 * 24 * time.Hour, "30d": 30 * 24 * time.Hour, "0d": 0,
+	} {
+		if got, err := ParseDuration(in); err != nil || got != want {
+			t.Errorf("ParseDuration(%q) = %v, %v; want %v", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"", "d", "-1d", "1.5d", "1d12h", "soon", "99999999d"} {
+		if got, err := ParseDuration(in); err == nil {
+			t.Errorf("ParseDuration(%q) = %v, want an error", in, got)
+		}
+	}
 }

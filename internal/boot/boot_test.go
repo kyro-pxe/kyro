@@ -114,7 +114,7 @@ func (fx *fixture) arm(profile string) state.Client {
 	if err != nil {
 		fx.t.Fatal(err)
 	}
-	c, err := fx.svc.State.Arm(key, "win11", profile, false)
+	c, err := fx.svc.State.Arm(key, state.Arming{Image: "win11", Profile: profile, Lifetime: state.DefaultArmLifetime}, false)
 	if err != nil {
 		fx.t.Fatal(err)
 	}
@@ -234,6 +234,47 @@ func TestArmedClientIsInstalledOnce(t *testing.T) {
 		if body := fx.get(testQuery).Body.String(); !isLocal(body) || !strings.Contains(body, "is installed") {
 			t.Fatalf("boot %d after provisioning:\n%s", i, body)
 		}
+	}
+}
+
+// TestExpiredArmingGetsNoInstaller: a client whose arming has run out is
+// sent to its disk, although no sweep has marked it yet.
+func TestExpiredArmingGetsNoInstaller(t *testing.T) {
+	fx := newFixture(t)
+	armed := fx.arm(example.Name)
+	if rec := fx.do("GET", "/", "127.0.0.1", nil); rec.Code == 200 {
+		t.Fatal("the boot handler serves the status page")
+	}
+	status := httptest.NewRecorder()
+	fx.svc.StatusHandler().ServeHTTP(status, httptest.NewRequest("GET", "/", nil))
+	if !strings.Contains(status.Body.String(), "<td>armed until ") {
+		t.Errorf("the status page does not say until when the client is armed:\n%s", status.Body.String())
+	}
+
+	now := time.Now()
+	fx.svc.State.Now = func() time.Time { return now.Add(state.DefaultArmLifetime + time.Minute) }
+	body := fx.get(testQuery).Body.String()
+	if !isLocal(body) || !strings.Contains(body, "ran out") {
+		t.Fatalf("a client whose arming ran out got:\n%s", body)
+	}
+	if c := fx.client(); c.State != state.Expired || c.Token != "" {
+		t.Fatalf("record: %+v", c)
+	}
+	if len(fx.dropped) != 0 {
+		t.Errorf("OnInstall calls: %v", fx.dropped)
+	}
+	for _, name := range []string{"autounattend.xml", "kyro-start.cmd", "boot.wim"} {
+		if rec := fx.get("/i/" + armed.Token + "/" + name); rec.Code != 404 {
+			t.Errorf("%s under the token of the expired arming: %d", name, rec.Code)
+		}
+	}
+	if rec := fx.do("POST", "/api/v1/callback/"+armed.Token, "192.168.77.80", nil); rec.Code != 404 {
+		t.Errorf("callback with the token of the expired arming: %d", rec.Code)
+	}
+	status = httptest.NewRecorder()
+	fx.svc.StatusHandler().ServeHTTP(status, httptest.NewRequest("GET", "/", nil))
+	if !strings.Contains(status.Body.String(), `class="s expired"`) || strings.Contains(status.Body.String(), "<td>armed until ") {
+		t.Errorf("status page after the arming ran out:\n%s", status.Body.String())
 	}
 }
 
@@ -470,6 +511,22 @@ func TestExpire(t *testing.T) {
 	}
 	if !strings.Contains(fx.logLines.String(), "installation failed") {
 		t.Error("the failure was not logged")
+	}
+
+	// An arming that nobody used runs out, and the log says so.
+	fx = newFixture(t)
+	fx.arm(example.Name)
+	fx.svc.Expire()
+	if c := fx.client(); c.State != state.Armed {
+		t.Fatalf("state = %s", c.State)
+	}
+	fx.svc.State.Now = func() time.Time { return now.Add(25 * time.Hour) }
+	fx.svc.Expire()
+	if c := fx.client(); c.State != state.Expired {
+		t.Errorf("state = %s", c.State)
+	}
+	if !strings.Contains(fx.logLines.String(), "arming expired") {
+		t.Error("the expiry was not logged")
 	}
 }
 

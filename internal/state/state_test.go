@@ -38,6 +38,11 @@ func newStore(t testing.TB) *Store {
 	return s
 }
 
+// arming is an arming with the default lifetime.
+func arming(image, profile string) Arming {
+	return Arming{Image: image, Profile: profile, Lifetime: DefaultArmLifetime}
+}
+
 func must[T any](v T, err error) func(testing.TB) T {
 	return func(t testing.TB) T {
 		t.Helper()
@@ -121,7 +126,7 @@ func TestOneInstallPerArm(t *testing.T) {
 		}
 	}
 
-	c := must(s.Arm(macKey, "win11", "example", false))(t)
+	c := must(s.Arm(macKey, arming("win11", "example"), false))(t)
 	if c.State != Armed || len(c.Token) != 32 {
 		t.Fatalf("after Arm: %+v", c)
 	}
@@ -150,7 +155,7 @@ func TestOneInstallPerArm(t *testing.T) {
 	}
 
 	// Only arming again installs again.
-	must(s.Arm(macKey, "win11", "example", false))(t)
+	must(s.Arm(macKey, arming("win11", "example"), false))(t)
 	if d := must(s.Boot(machine, "10.0.0.5"))(t); !d.Install {
 		t.Fatal("no installation after arming again")
 	}
@@ -159,12 +164,172 @@ func TestOneInstallPerArm(t *testing.T) {
 	}
 }
 
+// TestArmingRunsOut: a client that was armed and forgotten is not wiped
+// when it boots from the network after its arming has run out.
+func TestArmingRunsOut(t *testing.T) {
+	start := time.Date(2026, 11, 16, 10, 0, 0, 0, time.UTC)
+	twoHours := Arming{Image: "win11", Profile: "example", Lifetime: 2 * time.Hour}
+	fixture := func(t *testing.T) (*Store, *time.Time) {
+		s, now := newStore(t), start
+		s.Now = func() time.Time { return now }
+		return s, &now
+	}
+
+	t.Run("a boot just before the end installs", func(t *testing.T) {
+		s, now := fixture(t)
+		c := must(s.Arm(macKey, twoHours, false))(t)
+		if c.ArmedUntil == nil || !c.ArmedUntil.Equal(start.Add(2*time.Hour)) {
+			t.Fatalf("ArmedUntil = %v", c.ArmedUntil)
+		}
+		*now = start.Add(2*time.Hour - time.Second)
+		if d := must(s.Boot(machine, ""))(t); !d.Install {
+			t.Fatalf("boot before the end: %+v", d)
+		}
+	})
+
+	t.Run("a boot at the end does not", func(t *testing.T) {
+		s, now := fixture(t)
+		armed := must(s.Arm(macKey, twoHours, false))(t)
+		*now = start.Add(2 * time.Hour)
+		d := must(s.Boot(machine, "10.0.0.5"))(t)
+		if d.Install || d.Client.State != Expired || d.Client.Token != "" || d.Client.Failure == "" {
+			t.Fatalf("boot at the end: %+v", d)
+		}
+		if d.Client.Seen != machine || d.Client.Boots != 1 {
+			t.Errorf("the boot was not recorded: %+v", d.Client)
+		}
+		// Nothing brings it back but arming again.
+		*now = start.Add(100 * time.Hour)
+		for i := 0; i < 3; i++ {
+			if d := must(s.Boot(machine, ""))(t); d.Install || d.Client.State != Expired {
+				t.Fatalf("later boot %d: %+v", i, d)
+			}
+		}
+		if _, err := s.Installation(armed.Token); !errors.Is(err, ErrNoToken) {
+			t.Errorf("the token of the arming still opens something: %v", err)
+		}
+		if _, _, err := s.Provisioned(armed.Token); !errors.Is(err, ErrNoToken) {
+			t.Errorf("the token of the arming still reports: %v", err)
+		}
+		if c, err := s.Disarm(macKey); !errors.Is(err, ErrNotArmed) || c.State != Expired {
+			t.Errorf("Disarm of an expired client: %+v, %v", c, err)
+		}
+		if changed := must(s.Expire(time.Hour))(t); len(changed) != 0 {
+			t.Errorf("Expire changed it again: %+v", changed)
+		}
+	})
+
+	t.Run("without a boot the sweep marks it", func(t *testing.T) {
+		s, now := fixture(t)
+		must(s.Arm(macKey, twoHours, false))(t)
+		*now = start.Add(time.Hour)
+		if changed := must(s.Expire(3 * time.Hour))(t); len(changed) != 0 {
+			t.Fatalf("expired too early: %+v", changed)
+		}
+		*now = start.Add(2 * time.Hour)
+		changed := must(s.Expire(3 * time.Hour))(t)
+		if len(changed) != 1 || changed[0].State != Expired || changed[0].Token != "" {
+			t.Fatalf("Expire = %+v", changed)
+		}
+		if d := must(s.Boot(machine, ""))(t); d.Install {
+			t.Fatal("installed after the sweep marked it expired")
+		}
+	})
+
+	t.Run("disarming after the end marks it expired", func(t *testing.T) {
+		s, now := fixture(t)
+		must(s.Arm(macKey, twoHours, false))(t)
+		*now = start.Add(3 * time.Hour)
+		if c, err := s.Disarm(macKey); !errors.Is(err, ErrNotArmed) || c.State != Expired {
+			t.Fatalf("Disarm = %+v, %v", c, err)
+		}
+		if c, ok, _ := s.Get(macKey); !ok || c.State != Expired {
+			t.Fatalf("record after Disarm: %+v", c)
+		}
+	})
+
+	t.Run("arming again installs", func(t *testing.T) {
+		s, now := fixture(t)
+		must(s.Arm(macKey, twoHours, false))(t)
+		*now = start.Add(5 * time.Hour)
+		must(s.Boot(machine, ""))(t)
+		c := must(s.Arm(macKey, twoHours, false))(t)
+		if c.State != Armed || c.Failure != "" || c.FinishedAt != nil || !c.ArmedUntil.Equal(now.Add(2*time.Hour)) {
+			t.Fatalf("armed again: %+v", c)
+		}
+		if d := must(s.Boot(machine, ""))(t); !d.Install {
+			t.Fatalf("boot after arming again: %+v", d)
+		}
+	})
+
+	t.Run("an expired arming does not hide a valid one", func(t *testing.T) {
+		s, now := fixture(t)
+		must(s.Arm(macKey, twoHours, false))(t)
+		*now = start.Add(3 * time.Hour)
+		bySerial := Key{KindSerial, machine.Serial}
+		must(s.Arm(bySerial, twoHours, false))(t)
+		d := must(s.Boot(machine, ""))(t)
+		if !d.Install || d.Client.Key != bySerial {
+			t.Fatalf("boot: %+v", d)
+		}
+		if c, _, _ := s.Get(macKey); c.State != Expired {
+			t.Errorf("the record under the MAC address: %+v", c)
+		}
+	})
+
+	t.Run("a record from before this rule gets the default lifetime", func(t *testing.T) {
+		s, now := fixture(t)
+		legacy := func(k Key, armedAt *time.Time) {
+			t.Helper()
+			if err := s.write(&Client{Key: k, State: Armed, Image: "win11", Profile: "example", Token: strings.Repeat("a", 32), ArmedAt: armedAt}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		legacy(macKey, &start)
+		*now = start.Add(DefaultArmLifetime - time.Second)
+		if d := must(s.Boot(machine, ""))(t); !d.Install {
+			t.Fatalf("within the default lifetime: %+v", d)
+		}
+
+		s, now = fixture(t)
+		legacy(macKey, &start)
+		*now = start.Add(DefaultArmLifetime)
+		if d := must(s.Boot(machine, ""))(t); d.Install || d.Client.State != Expired {
+			t.Fatalf("after the default lifetime: %+v", d)
+		}
+
+		// No time at all: when in doubt, no installation.
+		s, _ = fixture(t)
+		legacy(macKey, nil)
+		if d := must(s.Boot(machine, ""))(t); d.Install || d.Client.State != Expired {
+			t.Fatalf("armed without a time: %+v", d)
+		}
+	})
+
+	t.Run("the lifetime has limits", func(t *testing.T) {
+		s, _ := fixture(t)
+		for _, d := range []time.Duration{-time.Hour, 0, MinArmLifetime - time.Second, MaxArmLifetime + time.Second} {
+			if _, err := s.Arm(macKey, Arming{Image: "win11", Profile: "example", Lifetime: d}, false); !errors.Is(err, ErrLifetime) {
+				t.Errorf("lifetime %v: %v", d, err)
+			}
+		}
+		if _, ok, _ := s.Get(macKey); ok {
+			t.Error("a refused arming left a record")
+		}
+		for _, d := range []time.Duration{MinArmLifetime, MaxArmLifetime} {
+			if _, err := s.Arm(macKey, Arming{Image: "win11", Profile: "example", Lifetime: d}, false); err != nil {
+				t.Errorf("lifetime %v: %v", d, err)
+			}
+		}
+	})
+}
+
 func TestFailedClientIsNotReinstalled(t *testing.T) {
 	s := newStore(t)
 	now := time.Date(2026, 11, 14, 10, 0, 0, 0, time.UTC)
 	s.Now = func() time.Time { return now }
 
-	must(s.Arm(macKey, "win11", "example", false))(t)
+	must(s.Arm(macKey, arming("win11", "example"), false))(t)
 	must(s.Boot(machine, ""))(t)
 
 	now = now.Add(2 * time.Hour)
@@ -190,7 +355,7 @@ func TestFailedClientIsNotReinstalled(t *testing.T) {
 
 func TestFail(t *testing.T) {
 	s := newStore(t)
-	armed := must(s.Arm(macKey, "win11", "example", false))(t)
+	armed := must(s.Arm(macKey, arming("win11", "example"), false))(t)
 	if err := s.Fail(armed.Token, "too early"); !errors.Is(err, ErrNoToken) {
 		t.Errorf("Fail before the installation started: %v", err)
 	}
@@ -212,7 +377,7 @@ func TestFail(t *testing.T) {
 
 func TestTokens(t *testing.T) {
 	s := newStore(t)
-	armed := must(s.Arm(macKey, "win11", "example", false))(t)
+	armed := must(s.Arm(macKey, arming("win11", "example"), false))(t)
 
 	// Armed but not booted: the token opens nothing yet.
 	if _, err := s.Installation(armed.Token); !errors.Is(err, ErrNoToken) {
@@ -248,7 +413,7 @@ func TestTokens(t *testing.T) {
 	}
 
 	// Arming again makes a new token; the old one stays dead.
-	again := must(s.Arm(macKey, "win11", "example", false))(t)
+	again := must(s.Arm(macKey, arming("win11", "example"), false))(t)
 	if again.Token == armed.Token {
 		t.Error("token reused")
 	}
@@ -260,16 +425,16 @@ func TestTokens(t *testing.T) {
 
 func TestArmWhileInstalling(t *testing.T) {
 	s := newStore(t)
-	must(s.Arm(macKey, "win11", "a", false))(t)
+	must(s.Arm(macKey, arming("win11", "a"), false))(t)
 	// Arming an armed client replaces what it is armed for.
-	must(s.Arm(macKey, "win11", "b", false))(t)
+	must(s.Arm(macKey, arming("win11", "b"), false))(t)
 	if d := must(s.Boot(machine, ""))(t); d.Client.Profile != "b" {
 		t.Fatalf("profile = %q", d.Client.Profile)
 	}
-	if _, err := s.Arm(macKey, "win11", "c", false); !errors.Is(err, ErrInstalling) {
+	if _, err := s.Arm(macKey, arming("win11", "c"), false); !errors.Is(err, ErrInstalling) {
 		t.Fatalf("Arm while installing: %v", err)
 	}
-	if c := must(s.Arm(macKey, "win11", "c", true))(t); c.State != Armed {
+	if c := must(s.Arm(macKey, arming("win11", "c"), true))(t); c.State != Armed {
 		t.Fatalf("forced Arm: %+v", c)
 	}
 }
@@ -281,7 +446,7 @@ func TestDisarm(t *testing.T) {
 	}
 
 	// Armed and never seen: disarming forgets it.
-	must(s.Arm(macKey, "win11", "example", false))(t)
+	must(s.Arm(macKey, arming("win11", "example"), false))(t)
 	must(s.Disarm(macKey))(t)
 	if _, ok, _ := s.Get(macKey); ok {
 		t.Error("record still there after Disarm")
@@ -291,7 +456,7 @@ func TestDisarm(t *testing.T) {
 	}
 
 	// Seen before: disarming puts it back to unknown.
-	must(s.Arm(macKey, "win11", "example", false))(t)
+	must(s.Arm(macKey, arming("win11", "example"), false))(t)
 	c := must(s.Disarm(macKey))(t)
 	if c.State != Unknown || c.Token != "" {
 		t.Errorf("after Disarm: %+v", c)
@@ -301,7 +466,7 @@ func TestDisarm(t *testing.T) {
 	}
 
 	// Disarming does not undo an installation that has started.
-	must(s.Arm(macKey, "win11", "example", false))(t)
+	must(s.Arm(macKey, arming("win11", "example"), false))(t)
 	must(s.Boot(machine, ""))(t)
 	if _, err := s.Disarm(macKey); !errors.Is(err, ErrNotArmed) {
 		t.Errorf("Disarm while installing: %v", err)
@@ -314,7 +479,7 @@ func TestArmedBySerialOrUUID(t *testing.T) {
 		// The machine was seen before and is listed under its MAC address.
 		must(s.Boot(machine, ""))(t)
 		k := must(ParseKey(key))(t)
-		must(s.Arm(k, "win11", "example", false))(t)
+		must(s.Arm(k, arming("win11", "example"), false))(t)
 
 		// Another machine does not get the installer.
 		other := NewIdentity("52:54:00:77:00:02", "", "OTHER")
@@ -364,7 +529,7 @@ func TestUnknownClientsAreLimited(t *testing.T) {
 		t.Error("record written although the limit was reached")
 	}
 	// The limit does not get in the way of arming.
-	must(s.Arm(macKey, "win11", "example", false))(t)
+	must(s.Arm(macKey, arming("win11", "example"), false))(t)
 	if d := must(s.Boot(machine, ""))(t); !d.Install {
 		t.Error("an armed client was not installed because of the limit")
 	}
@@ -387,7 +552,7 @@ func itoa16(i int) string {
 func TestConcurrentBoots(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "state")
 	first := must(Open(dir))(t)
-	must(first.Arm(macKey, "win11", "example", false))(t)
+	must(first.Arm(macKey, arming("win11", "example"), false))(t)
 
 	const n = 24
 	var wg sync.WaitGroup
@@ -423,7 +588,7 @@ func TestConcurrentBoots(t *testing.T) {
 
 func TestRecordsOnDisk(t *testing.T) {
 	s := newStore(t)
-	must(s.Arm(macKey, "win11", "example", false))(t)
+	must(s.Arm(macKey, arming("win11", "example"), false))(t)
 	must(s.Boot(machine, "10.0.0.5"))(t)
 
 	entries, err := os.ReadDir(s.dir)
@@ -503,6 +668,7 @@ func FuzzTransitions(f *testing.F) {
 	f.Add([]byte{0, 2, 6, 2, 0, 2, 2})
 	f.Add([]byte{1, 3, 5, 3, 7, 3, 9, 3})
 	f.Add([]byte{0, 8, 2, 0, 10, 2, 4, 2})
+	f.Add([]byte{0, 8, 8, 8, 2, 0, 8, 2, 1, 9, 9, 9, 3})
 	f.Fuzz(func(t *testing.T, ops []byte) {
 		if len(ops) > 64 {
 			return
@@ -514,14 +680,17 @@ func FuzzTransitions(f *testing.F) {
 		keys := []Key{macKey, {KindSerial, "OTHER-2"}}
 		var arms, installs [2]int
 		var tokens [2]string
+		// Short enough that the clock of this test gets past it.
+		short := Arming{Image: "img", Profile: "prof", Lifetime: 5 * time.Hour}
+		var until [2]time.Time
 
 		for _, op := range ops {
 			m := int(op) % 2
 			switch op / 2 % 6 {
 			case 0:
-				if c, err := s.Arm(keys[m], "img", "prof", false); err == nil {
+				if c, err := s.Arm(keys[m], short, false); err == nil {
 					arms[m]++
-					tokens[m] = c.Token
+					tokens[m], until[m] = c.Token, *c.ArmedUntil
 				}
 			case 1:
 				d, err := s.Boot(ids[m], "")
@@ -530,6 +699,9 @@ func FuzzTransitions(f *testing.F) {
 				}
 				if d.Install {
 					installs[m]++
+					if !now.Before(until[m]) {
+						t.Fatalf("machine %d was installed at %v, its arming ran out at %v (ops %v)", m, now, until[m], ops)
+					}
 				}
 			case 2:
 				s.Provisioned(tokens[m])
@@ -539,9 +711,9 @@ func FuzzTransitions(f *testing.F) {
 				now = now.Add(2 * time.Hour)
 				s.Expire(3 * time.Hour)
 			case 5:
-				if c, err := s.Arm(keys[m], "img", "prof", true); err == nil {
+				if c, err := s.Arm(keys[m], short, true); err == nil {
 					arms[m]++
-					tokens[m] = c.Token
+					tokens[m], until[m] = c.Token, *c.ArmedUntil
 				}
 			}
 			for i := range ids {
@@ -566,12 +738,15 @@ func FuzzTransitions(f *testing.F) {
 		}
 		for _, c := range list {
 			switch c.State {
-			case Unknown, Armed, Installing, Provisioned, Failed:
+			case Unknown, Armed, Installing, Provisioned, Failed, Expired:
 			default:
 				t.Fatalf("record in state %q", c.State)
 			}
 			if (c.State == Armed || c.State == Installing) && len(c.Token) != 32 {
 				t.Fatalf("%s is %s without a token", c.Key, c.State)
+			}
+			if c.State == Expired && c.Token != "" {
+				t.Fatalf("%s is expired and has a token", c.Key)
 			}
 		}
 	})
@@ -602,7 +777,7 @@ func TestKeysThatWouldLeaveTheDirectory(t *testing.T) {
 		if name, err := k.fileName(); err == nil {
 			t.Errorf("%#v got the file name %q", k, name)
 		}
-		if _, err := s.Arm(k, "image", "profile", false); err == nil {
+		if _, err := s.Arm(k, arming("image", "profile"), false); err == nil {
 			t.Errorf("%#v was armed", k)
 		}
 		if err := s.Forget(k); err == nil {

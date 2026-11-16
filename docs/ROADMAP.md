@@ -89,6 +89,7 @@ The first, second and fourth run used the unsigned iPXE, which is now what
 | `--confirm-wipe` for profiles that wipe a disk | tested | Unit tests; e2e. |
 | Callback from the installed system | tested | Unit and fuzz tests; e2e. Rate and size limited. Not authentication. |
 | `failed` after `install_timeout` | tested | Unit tests only. |
+| An arming runs out (`arm_timeout`, `kyro arm --expires`) | tested | Not in v0.1.0-alpha. Unit and fuzz tests only. [ADR 0006](adr/0006-arming-expires.md). |
 | Menu for unknown clients (`unknown_clients: menu`) | tested | Off by default. Unit tests only; shows identifiers and boots the disk. |
 | Read-only status page and JSON (`/api/v1/clients`) | tested | Unit tests. Listens on `127.0.0.1:8080` by default. |
 

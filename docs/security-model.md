@@ -81,6 +81,12 @@ These are protections against mistakes, not against attackers.
   and written to disk before the installer is handed out. If writing fails,
   the client gets nothing. Every later network boot is sent to the local
   disk until an administrator arms the client again.
+- **An arming runs out.** A client that does not boot from the network
+  within the lifetime of its arming (24 hours unless set otherwise, at most
+  30 days) is not installed and shows as `expired`. A machine that was
+  armed and forgotten is not wiped weeks later
+  ([ADR 0006](adr/0006-arming-expires.md)). This relies on the clock of the
+  server.
 - **Wiping needs a confirmation.** A profile that partitions or wipes a
   disk, or a bare answer file whose effect Kyro cannot know, can only be
   armed with `--confirm-wipe`.

@@ -142,6 +142,8 @@ func (s *Service) handleBoot(w http.ResponseWriter, r *http.Request) {
 			why = "this machine is installed."
 		case state.Failed:
 			why = "the last installation of this machine failed; arm it again to retry."
+		case state.Expired:
+			why = "the arming of this machine ran out before it booted; arm it again to install it."
 		}
 		script(w, localScript(why))
 		return
@@ -323,13 +325,18 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 }
 
 // Expire marks installations as failed that have run for longer than the
-// configured time. The service calls it once a minute.
+// configured time, and armings as expired that have run out. The service
+// calls it once a minute.
 func (s *Service) Expire() {
-	failed, err := s.State.Expire(time.Duration(s.Config.InstallTimeout))
+	changed, err := s.State.Expire(time.Duration(s.Config.InstallTimeout))
 	if err != nil {
-		s.Log.Error("cannot check for installations that take too long", "err", err)
+		s.Log.Error("cannot check for installations and armings that have run out of time", "err", err)
 	}
-	for _, c := range failed {
+	for _, c := range changed {
+		if c.State == state.Expired {
+			s.Log.Warn("arming expired, the client will not be installed", "client", c.Key.String(), "reason", c.Failure)
+			continue
+		}
 		s.Log.Warn("installation failed", "client", c.Key.String(), "reason", c.Failure)
 	}
 }

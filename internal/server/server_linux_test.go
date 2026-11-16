@@ -167,7 +167,7 @@ func TestWholeInstallation(t *testing.T) {
 	base := r.cfg.HTTPBase()
 
 	key, _ := state.ParseKey("52:54:00:77:00:01")
-	armed, err := r.state.Arm(key, "win11", example.Name, false)
+	armed, err := r.state.Arm(key, state.Arming{Image: "win11", Profile: example.Name, Lifetime: state.DefaultArmLifetime}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +273,7 @@ func TestImageAddedWhileRunning(t *testing.T) {
 		t.Fatal(err)
 	}
 	key, _ := state.ParseKey("52:54:00:77:00:09")
-	if _, err := r.state.Arm(key, "second", example.Name, false); err != nil {
+	if _, err := r.state.Arm(key, state.Arming{Image: "second", Profile: example.Name, Lifetime: state.DefaultArmLifetime}, false); err != nil {
 		t.Fatal(err)
 	}
 	_, script := get(t, r.cfg.HTTPBase()+"/boot?mac=52-54-00-77-00-09")

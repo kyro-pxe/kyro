@@ -26,6 +26,7 @@ the list. They usually run as different users.
 | `installing` | Was given the installer, has not reported back | The local disk |
 | `provisioned` | The installed system reported back | The local disk |
 | `failed` | Did not report back within `install_timeout` | The local disk |
+| `expired` | Was armed and did not boot from the network in time ([ADR 0006](0006-arming-expires.md)) | The local disk |
 
 ```
             kyro arm                 network boot              callback
@@ -35,6 +36,10 @@ the list. They usually run as different users.
 
  kyro arm leads back to armed from every state. From installing it needs --force.
 ```
+
+Since [ADR 0006](0006-arming-expires.md) an arming also ends by itself: an
+armed client that does not boot from the network within the lifetime of its
+arming becomes `expired` and is not installed.
 
 **A client gets the installer only when it is armed, and getting it ends
 being armed.** The record is changed to `installing` and written to disk

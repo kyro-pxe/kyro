@@ -97,11 +97,14 @@ it works whether or not the service runs.
 
 ## Client states
 
-`unknown`, `armed`, `installing`, `provisioned`, `failed`. ADR 0004 has the
-diagram and the rules. The two that matter most:
+`unknown`, `armed`, `installing`, `provisioned`, `failed`, `expired`.
+[ADR 0004](adr/0004-client-state.md) has the diagram and the rules. The
+ones that matter most:
 
 - Only `armed` leads to an installation, and getting the installer ends
   being armed.
+- An arming lasts 24 hours unless set otherwise. After that the client is
+  `expired` and is not installed ([ADR 0006](adr/0006-arming-expires.md)).
 - Arming for a profile that wipes a disk needs `--confirm-wipe`.
 
 ## Third-party components

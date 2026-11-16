@@ -61,6 +61,18 @@ const (
 	Installing  State = "installing"
 	Provisioned State = "provisioned"
 	Failed      State = "failed"
+	// Expired is a client that was armed and did not boot from the network
+	// before its arming ran out. It is not installed.
+	Expired State = "expired"
+)
+
+// How long an arming may last. A client that is armed and forgotten must
+// not be wiped when it happens to boot from the network weeks later, so
+// every arming ends by itself.
+const (
+	DefaultArmLifetime = 24 * time.Hour
+	MinArmLifetime     = time.Minute
+	MaxArmLifetime     = 30 * 24 * time.Hour
 )
 
 // maxUnknown limits how many clients are remembered that were never armed.
@@ -86,13 +98,48 @@ type Client struct {
 	LastAddr string   `json:"last_addr,omitempty"`
 	Boots    int      `json:"boots,omitempty"`
 
-	ArmedAt    *time.Time `json:"armed_at,omitempty"`
+	ArmedAt *time.Time `json:"armed_at,omitempty"`
+	// ArmedUntil is when the arming runs out. From then on the client is
+	// not installed any more.
+	ArmedUntil *time.Time `json:"armed_until,omitempty"`
 	StartedAt  *time.Time `json:"started_at,omitempty"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
 	LastSeen   *time.Time `json:"last_seen,omitempty"`
 
-	// Failure says why the client is in state failed.
+	// Failure says why the client is in state failed or expired.
 	Failure string `json:"failure,omitempty"`
+}
+
+// armedUntil returns when the arming of an armed client runs out. A record
+// that does not say, as written by a version without this rule, is treated
+// as armed with the default lifetime. A record without any time counts as
+// run out: when in doubt, no installation.
+func (c *Client) armedUntil() time.Time {
+	switch {
+	case c.ArmedUntil != nil:
+		return *c.ArmedUntil
+	case c.ArmedAt != nil:
+		return c.ArmedAt.Add(DefaultArmLifetime)
+	}
+	return time.Time{}
+}
+
+// expire turns an armed client whose arming has run out into an expired
+// one and says whether it did. The token goes: nothing opens with it.
+func (c *Client) expire(now *time.Time) bool {
+	if c.State != Armed {
+		return false
+	}
+	until := c.armedUntil()
+	if now.Before(until) {
+		return false
+	}
+	c.State, c.Token, c.FinishedAt = Expired, "", now
+	c.Failure = "the arming ran out before the client booted from the network"
+	if !until.IsZero() {
+		c.Failure = fmt.Sprintf("was armed until %s UTC and did not boot from the network before that", until.UTC().Format("2006-01-02 15:04"))
+	}
+	return true
 }
 
 // Errors that callers tell apart.
@@ -100,6 +147,7 @@ var (
 	ErrInstalling = errors.New("the client is being installed right now")
 	ErrNotArmed   = errors.New("the client is not armed")
 	ErrNoToken    = errors.New("no installation with this token")
+	ErrLifetime   = fmt.Errorf("an arming lasts between %s and %s", MinArmLifetime, MaxArmLifetime)
 )
 
 // Store is a directory of client records.
@@ -271,10 +319,22 @@ func newToken() (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
-// Arm marks a client for one installation of the given image with the
-// given profile. Arming an armed client replaces what it was armed for. A
-// client that is being installed is only armed again with force.
-func (s *Store) Arm(k Key, image, profile string, force bool) (Client, error) {
+// Arming is what a client is armed for.
+type Arming struct {
+	Image   string
+	Profile string
+	// Lifetime is how long the arming lasts. If the client has not booted
+	// from the network by then, it is not installed.
+	Lifetime time.Duration
+}
+
+// Arm marks a client for one installation. Arming an armed client replaces
+// what it was armed for. A client that is being installed is only armed
+// again with force.
+func (s *Store) Arm(k Key, a Arming, force bool) (Client, error) {
+	if a.Lifetime < MinArmLifetime || a.Lifetime > MaxArmLifetime {
+		return Client{}, ErrLifetime
+	}
 	unlock, err := s.lock()
 	if err != nil {
 		return Client{}, err
@@ -295,14 +355,17 @@ func (s *Store) Arm(k Key, image, profile string, force bool) (Client, error) {
 	if err != nil {
 		return Client{}, err
 	}
-	c.State, c.Image, c.Profile, c.Token = Armed, image, profile, token
+	c.State, c.Image, c.Profile, c.Token = Armed, a.Image, a.Profile, token
 	c.ArmedAt, c.StartedAt, c.FinishedAt, c.Failure = s.now(), nil, nil, ""
+	until := c.ArmedAt.Add(a.Lifetime)
+	c.ArmedUntil = &until
 	return *c, s.write(c)
 }
 
 // Disarm takes back an Arm that the client has not used yet. A client that
 // was seen before goes back to unknown; one that was never seen is
-// forgotten.
+// forgotten. An arming that has run out cannot be taken back any more: the
+// record then says expired, and stays so.
 func (s *Store) Disarm(k Key) (Client, error) {
 	unlock, err := s.lock()
 	if err != nil {
@@ -314,13 +377,18 @@ func (s *Store) Disarm(k Key) (Client, error) {
 	if err != nil {
 		return Client{}, err
 	}
+	if c != nil && c.expire(s.now()) {
+		if err := s.write(c); err != nil {
+			return *c, err
+		}
+	}
 	if c == nil || c.State != Armed {
 		if c == nil {
 			c = &Client{Key: k, State: Unknown}
 		}
 		return *c, ErrNotArmed
 	}
-	c.State, c.Image, c.Profile, c.Token, c.ArmedAt = Unknown, "", "", "", nil
+	c.State, c.Image, c.Profile, c.Token, c.ArmedAt, c.ArmedUntil = Unknown, "", "", "", nil, nil
 	if c.LastSeen == nil {
 		return *c, s.remove(k)
 	}
@@ -369,6 +437,17 @@ func (s *Store) Boot(id Identity, addr string) (Decision, error) {
 	seen := func(c *Client) {
 		c.Seen, c.LastAddr, c.LastSeen = id, addr, s.now()
 		c.Boots++
+	}
+
+	// An arming that has run out installs nothing. This is decided here,
+	// under the lock and with the clock of this moment, and not left to
+	// the sweep that runs once a minute.
+	for _, c := range found {
+		if c.expire(s.now()) {
+			if err := s.write(c); err != nil {
+				return Decision{}, err
+			}
+		}
 	}
 
 	for _, c := range found {
@@ -501,7 +580,8 @@ func (s *Store) Fail(token, reason string) error {
 }
 
 // Expire marks every client as failed that has been installing for longer
-// than timeout, and returns them.
+// than timeout, and every armed client as expired whose arming has run out.
+// It returns the clients it changed.
 func (s *Store) Expire(timeout time.Duration) ([]Client, error) {
 	unlock, err := s.lock()
 	if err != nil {
@@ -515,11 +595,14 @@ func (s *Store) Expire(timeout time.Duration) ([]Client, error) {
 	}
 	var out []Client
 	for _, c := range all {
-		if c.State != Installing || c.StartedAt == nil || s.Now().Sub(*c.StartedAt) <= timeout {
+		switch {
+		case c.expire(s.now()):
+		case c.State == Installing && c.StartedAt != nil && s.Now().Sub(*c.StartedAt) > timeout:
+			c.State, c.FinishedAt = Failed, s.now()
+			c.Failure = fmt.Sprintf("the installed system did not report back within %s", timeout)
+		default:
 			continue
 		}
-		c.State, c.FinishedAt = Failed, s.now()
-		c.Failure = fmt.Sprintf("the installed system did not report back within %s", timeout)
 		if err := s.write(c); err != nil {
 			return out, err
 		}
