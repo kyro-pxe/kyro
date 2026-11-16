@@ -20,6 +20,7 @@ package state
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -465,6 +466,90 @@ func must2[A, B any](a A, b B, err error) func(testing.TB) A {
 			t.Fatal(err)
 		}
 		return a
+	}
+}
+
+// TestValues: the values of an arming are kept for its installation and
+// deleted when it ends, however it ends. They can be secrets.
+func TestValues(t *testing.T) {
+	withValues := Arming{Image: "win11", Profile: "example", Lifetime: 2 * time.Hour,
+		Values: map[string]string{"hostname": "PC-014", "product_key": "XXXXX-XXXXX"}}
+	start := time.Date(2026, 11, 16, 10, 0, 0, 0, time.UTC)
+	ends := map[string]func(t *testing.T, s *Store, now *time.Time, token string){
+		"callback": func(t *testing.T, s *Store, _ *time.Time, token string) {
+			must(s.Boot(machine, ""))(t)
+			must2(s.Provisioned(token))(t)
+		},
+		"failure that Kyro notices": func(t *testing.T, s *Store, _ *time.Time, token string) {
+			must(s.Boot(machine, ""))(t)
+			if err := s.Fail(token, "the image is gone"); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"Setup fails": func(t *testing.T, s *Store, _ *time.Time, token string) {
+			must(s.Boot(machine, ""))(t)
+			must2(s.Report(token, EventSetupFailed, "1"))(t)
+		},
+		"timeout": func(t *testing.T, s *Store, now *time.Time, _ string) {
+			must(s.Boot(machine, ""))(t)
+			*now = start.Add(5 * time.Hour)
+			must(s.Expire(3 * time.Hour))(t)
+		},
+		"the arming runs out": func(t *testing.T, s *Store, now *time.Time, _ string) {
+			*now = start.Add(5 * time.Hour)
+			must(s.Expire(3 * time.Hour))(t)
+		},
+		"disarm": func(t *testing.T, s *Store, _ *time.Time, _ string) {
+			must(s.Boot(Identity{MAC: "525400779999"}, ""))(t) // another machine; ours stays armed
+			must(s.Disarm(macKey))(t)
+		},
+		"armed again without values": func(t *testing.T, s *Store, _ *time.Time, _ string) {
+			must(s.Arm(macKey, arming("win11", "example"), false))(t)
+		},
+	}
+	for name, end := range ends {
+		t.Run(name, func(t *testing.T) {
+			s, now := newStore(t), start
+			s.Now = func() time.Time { return now }
+			c := must(s.Arm(macKey, withValues, false))(t)
+			if len(c.Values) != 2 || c.Values["hostname"] != "PC-014" {
+				t.Fatalf("after Arm: %+v", c.Values)
+			}
+			end(t, s, &now, c.Token)
+			got, ok, err := s.Get(macKey)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ok && len(got.Values) != 0 {
+				t.Errorf("the values are still in the record (state %s): %v", got.State, got.Values)
+			}
+			raw, _ := os.ReadFile(filepath.Join(s.dir, "mac-525400770001.json"))
+			if strings.Contains(string(raw), "XXXXX-XXXXX") {
+				t.Errorf("the value is still in the file:\n%s", raw)
+			}
+		})
+	}
+
+	// While the installation runs they are there, and they are the
+	// store's own copy.
+	s := newStore(t)
+	values := map[string]string{"hostname": "PC-014"}
+	c := must(s.Arm(macKey, Arming{Image: "win11", Profile: "example", Lifetime: time.Hour, Values: values}, false))(t)
+	values["hostname"] = "changed by the caller"
+	d := must(s.Boot(machine, ""))(t)
+	if !d.Install || d.Client.Values["hostname"] != "PC-014" {
+		t.Errorf("during the installation: %+v", d.Client.Values)
+	}
+	if got := must(s.Installation(c.Token))(t); got.Values["hostname"] != "PC-014" {
+		t.Errorf("Installation: %+v", got.Values)
+	}
+
+	many := map[string]string{}
+	for i := 0; i <= MaxValues; i++ {
+		many[fmt.Sprintf("v%d", i)] = "x"
+	}
+	if _, err := newStore(t).Arm(macKey, Arming{Image: "i", Profile: "p", Lifetime: time.Hour, Values: many}, false); err == nil {
+		t.Error("too many values were accepted")
 	}
 }
 

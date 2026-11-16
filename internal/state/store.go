@@ -129,6 +129,10 @@ type Client struct {
 	// Image and Profile are what the client is or was armed for.
 	Image   string `json:"image,omitempty"`
 	Profile string `json:"profile,omitempty"`
+	// Values are what the administrator gave for this one installation
+	// with 'kyro arm --set'. They can be secrets, such as a product key.
+	// They are deleted when the installation ends, however it ends.
+	Values map[string]string `json:"values,omitempty"`
 	// Token names this one installation in URLs. It is random, it is made
 	// when the client is armed, and it stops working when the installation
 	// ends.
@@ -203,7 +207,7 @@ func (c *Client) expire(now *time.Time) bool {
 	if now.Before(until) {
 		return false
 	}
-	c.State, c.Token, c.FinishedAt = Expired, "", now
+	c.State, c.Token, c.FinishedAt, c.Values = Expired, "", now, nil
 	c.Failure = "the arming ran out before the client booted from the network"
 	if !until.IsZero() {
 		c.Failure = fmt.Sprintf("was armed until %s UTC and did not boot from the network before that", until.UTC().Format("2006-01-02 15:04"))
@@ -395,7 +399,13 @@ type Arming struct {
 	// Lifetime is how long the arming lasts. If the client has not booted
 	// from the network by then, it is not installed.
 	Lifetime time.Duration
+	// Values are values for this one installation, by name. The store
+	// keeps them as they are; whoever arms checks them.
+	Values map[string]string
 }
+
+// MaxValues is how many values an arming can carry.
+const MaxValues = 32
 
 // Arm marks a client for one installation. Arming an armed client replaces
 // what it was armed for. A client that is being installed is only armed
@@ -403,6 +413,9 @@ type Arming struct {
 func (s *Store) Arm(k Key, a Arming, force bool) (Client, error) {
 	if a.Lifetime < MinArmLifetime || a.Lifetime > MaxArmLifetime {
 		return Client{}, ErrLifetime
+	}
+	if len(a.Values) > MaxValues {
+		return Client{}, fmt.Errorf("an arming carries at most %d values", MaxValues)
 	}
 	unlock, err := s.lock()
 	if err != nil {
@@ -425,6 +438,13 @@ func (s *Store) Arm(k Key, a Arming, force bool) (Client, error) {
 		return Client{}, err
 	}
 	c.State, c.Image, c.Profile, c.Token = Armed, a.Image, a.Profile, token
+	c.Values = nil
+	if len(a.Values) > 0 {
+		c.Values = make(map[string]string, len(a.Values))
+		for k, v := range a.Values {
+			c.Values[k] = v
+		}
+	}
 	c.ArmedAt, c.StartedAt, c.FinishedAt, c.Failure = s.now(), nil, nil, ""
 	c.Stage, c.StageAt, c.Restarts = "", nil, 0
 	until := c.ArmedAt.Add(a.Lifetime)
@@ -459,6 +479,7 @@ func (s *Store) Disarm(k Key) (Client, error) {
 		return *c, ErrNotArmed
 	}
 	c.State, c.Image, c.Profile, c.Token, c.ArmedAt, c.ArmedUntil = Unknown, "", "", "", nil, nil
+	c.Values = nil
 	if c.LastSeen == nil {
 		return *c, s.remove(k)
 	}
@@ -637,7 +658,7 @@ func (s *Store) Provisioned(token string) (c Client, changed bool, err error) {
 	case Provisioned:
 		return *rec, false, nil
 	case Installing:
-		rec.State, rec.FinishedAt = Provisioned, s.now()
+		rec.State, rec.FinishedAt, rec.Values = Provisioned, s.now(), nil
 		return *rec, true, s.write(rec)
 	}
 	return Client{}, false, ErrNoToken
@@ -686,7 +707,7 @@ func (s *Store) Report(token, event, detail string) (c Client, changed bool, err
 		return Client{}, false, ErrNoToken
 	}
 	if event == EventSetupFailed {
-		rec.State, rec.FinishedAt = Failed, s.now()
+		rec.State, rec.FinishedAt, rec.Values = Failed, s.now(), nil
 		rec.Failure = "Windows Setup ended with an error in Windows PE"
 		if detail != "" {
 			rec.Failure += " (exit code " + detail + ")"
@@ -717,7 +738,7 @@ func (s *Store) Fail(token, reason string) error {
 	if c == nil || c.State != Installing {
 		return ErrNoToken
 	}
-	c.State, c.FinishedAt, c.Failure = Failed, s.now(), reason
+	c.State, c.FinishedAt, c.Failure, c.Values = Failed, s.now(), reason, nil
 	return s.write(c)
 }
 
@@ -740,7 +761,7 @@ func (s *Store) Expire(timeout time.Duration) ([]Client, error) {
 		switch {
 		case c.expire(s.now()):
 		case c.State == Installing && c.StartedAt != nil && s.Now().Sub(*c.StartedAt) > timeout:
-			c.State, c.FinishedAt = Failed, s.now()
+			c.State, c.FinishedAt, c.Values = Failed, s.now(), nil
 			c.Failure = fmt.Sprintf("the installed system did not report back within %s: %s", timeout, c.stalled())
 		default:
 			continue
