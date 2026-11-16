@@ -66,8 +66,13 @@ type File struct {
 // Pack is a stored driver package.
 type Pack struct {
 	Name string `json:"name"`
-	// Source is the directory the pack was copied from, as a note.
-	Source  string    `json:"source,omitempty"`
+	// Source is where the pack comes from, as a note: the directory it
+	// was copied from, or the address it was fetched from.
+	Source string `json:"source,omitempty"`
+	// Version and License are set for packs that Kyro fetched from their
+	// maker.
+	Version string    `json:"version,omitempty"`
+	License string    `json:"license,omitempty"`
 	AddedAt time.Time `json:"added_at"`
 	Files   []File    `json:"files"`
 }
@@ -165,6 +170,12 @@ func scan(dir string) ([]File, error) {
 // Add copies the directory src into the store as the pack name. With
 // replace it overwrites a pack of the same name.
 func (s *Store) Add(src, name string, replace bool) (Pack, error) {
+	return s.add(src, name, replace, Pack{})
+}
+
+// add is Add with a note of where the pack comes from. Of note, only
+// Source, Version and License are used.
+func (s *Store) add(src, name string, replace bool, note Pack) (Pack, error) {
 	if !ValidName(name) {
 		return Pack{}, fmt.Errorf("invalid name %q: use lower-case letters, digits and hyphens, at most 32 characters", name)
 	}
@@ -182,6 +193,9 @@ func (s *Store) Add(src, name string, replace bool) (Pack, error) {
 	pack := Pack{Name: name, Source: src, AddedAt: time.Now().UTC().Truncate(time.Second), Files: files}
 	if abs, err := filepath.Abs(src); err == nil {
 		pack.Source = abs
+	}
+	if note.Source != "" {
+		pack.Source, pack.Version, pack.License = note.Source, note.Version, note.License
 	}
 	if len(pack.INFs()) == 0 {
 		return Pack{}, fmt.Errorf("%s has no .inf file, so it is not a driver that Windows can load; if the vendor ships an installer (.exe), unpack it first", src)

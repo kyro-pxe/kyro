@@ -420,3 +420,25 @@ func TestDriverCommands(t *testing.T) {
 	}
 	wants(t, c.ok("driver", "list"), "No driver packs")
 }
+
+func TestDriverFetch(t *testing.T) {
+	c := newCLI(t)
+	out := c.ok("driver", "fetch")
+	wants(t, out, "intel-rst: Intel Rapid Storage Technology", "version 20.4.0.1006", "must be accepted: --accept-license",
+		"https://www.intel.com/content/www/us/en/download/930427/", "virtio: virtio network and storage drivers", "BSD 3-Clause", "Stored:  no")
+
+	// Without the statement nothing is downloaded: this fails before any
+	// request, also where there is no network.
+	out = c.fails(1, "driver", "fetch", "intel-rst")
+	wants(t, out, "Nothing was downloaded.", "Intel Software License Agreement", "kyro driver fetch intel-rst --accept-license")
+	wants(t, c.ok("driver", "list"), "No driver packs", "kyro driver fetch")
+
+	// A file that is not the pinned download is refused.
+	wrong := filepath.Join(t.TempDir(), "SetupRST.exe")
+	os.WriteFile(wrong, []byte("not Intel's installer"), 0o644)
+	wants(t, c.fails(1, "driver", "fetch", "intel-rst", "--accept-license", "--from", wrong), "not the pinned", "nothing was stored")
+	wants(t, c.ok("driver", "list"), "No driver packs")
+
+	wants(t, c.fails(2, "driver", "fetch", "nvidia"), "does not know where to get")
+	wants(t, c.fails(2, "driver", "fetch", "virtio", "intel-rst"), "name one driver pack")
+}

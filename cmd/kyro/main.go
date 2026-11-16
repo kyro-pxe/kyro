@@ -50,7 +50,8 @@ Images and profiles:
   image add|list|remove       Windows ISOs to install from
   profile import|list|show|remove
                               Answer files to install with
-  driver add|list|remove      Drivers that Windows PE lacks for your hardware
+  driver add|fetch|list|remove
+                              Drivers that Windows PE lacks for your hardware
   bootfiles fetch|verify      iPXE and wimboot, from their release pages
 
 Clients:

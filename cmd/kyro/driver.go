@@ -30,17 +30,19 @@ import (
 
 func (e *env) driver(args []string) error {
 	if len(args) == 0 {
-		return usageErr("use 'kyro driver add <directory>', 'list' or 'remove <name>'")
+		return usageErr("use 'kyro driver add <directory>', 'fetch [name]', 'list' or 'remove <name>'")
 	}
 	switch args[0] {
 	case "add":
 		return e.driverAdd(args[1:])
+	case "fetch":
+		return e.driverFetch(args[1:])
 	case "list", "ls":
 		return e.driverList(args[1:])
 	case "remove", "rm":
 		return e.driverRemove(args[1:])
 	}
-	return usageErr("unknown subcommand %q; use add, list or remove", args[0])
+	return usageErr("unknown subcommand %q; use add, fetch, list or remove", args[0])
 }
 
 // driverNotice is printed whenever a pack is added. Kyro cannot judge a
@@ -122,6 +124,90 @@ memory.
 	return nil
 }
 
+func (e *env) driverFetch(args []string) error {
+	c := e.command("driver fetch", "[name] [flags]", `Download a driver pack from its maker and store it. Without a name, list
+what can be fetched.
+
+The versions are fixed, and so are the SHA-256 checksums of every file: a
+download that does not match is not stored. Kyro contains none of these
+files and passes none on; it downloads them to this machine for you.
+
+Some makers let nobody download their drivers without accepting a license.
+For those, read the license at the address shown and say that you accept
+it with --accept-license.
+`)
+	accept := c.Bool("accept-license", false, "you have read and accept the license under which the maker offers the drivers")
+	from := c.String("from", "", "take the download from this file instead of the network")
+	pos, err := c.parse(args)
+	if err != nil {
+		return err
+	}
+	cfg, err := c.config()
+	if err != nil {
+		return err
+	}
+	store := drivers.Open(cfg.DriversDir())
+	if len(pos) == 0 {
+		have := map[string]drivers.Pack{}
+		if packs, err := store.List(); err == nil {
+			for _, p := range packs {
+				have[p.Name] = p
+			}
+		}
+		fmt.Fprintln(e.stdout, "Driver packs that 'kyro driver fetch <name>' can download:")
+		for _, src := range drivers.Sources {
+			fmt.Fprintf(e.stdout, "\n%s: %s, version %s\n", src.Name, src.Title, src.Version)
+			fmt.Fprintf(e.stdout, "  For:     %s\n", src.Covers)
+			fmt.Fprintf(e.stdout, "  From:    %s\n", src.Page)
+			license := src.License
+			if src.MustAccept {
+				license += " (must be accepted: --accept-license)"
+			}
+			fmt.Fprintf(e.stdout, "  License: %s\n", license)
+			switch p, ok := have[src.Name]; {
+			case ok && p.Version == src.Version:
+				fmt.Fprintln(e.stdout, "  Stored:  yes")
+			case ok:
+				fmt.Fprintln(e.stdout, "  Stored:  a pack of this name that is not this version")
+			default:
+				fmt.Fprintln(e.stdout, "  Stored:  no")
+			}
+		}
+		return nil
+	}
+	if len(pos) != 1 {
+		return usageErr("name one driver pack; 'kyro driver fetch' lists them")
+	}
+	src, ok := drivers.FindSource(pos[0])
+	if !ok {
+		return usageErr("Kyro does not know where to get %q; 'kyro driver fetch' lists what it can fetch, and 'kyro driver add' stores drivers that you have", pos[0])
+	}
+	p, err := store.Fetch(e.ctx, src, drivers.FetchOptions{
+		AcceptLicense: *accept,
+		FromFile:      *from,
+		Report:        func(format string, a ...any) { fmt.Fprintf(e.stdout, format+"\n", a...) },
+	})
+	if errors.Is(err, drivers.ErrLicense) {
+		fmt.Fprintf(e.stderr, `Nothing was downloaded. %s lets nobody download these drivers without
+accepting the %s. Read it at
+  %s
+If you accept it, run:
+  kyro driver fetch %s --accept-license
+`, src.Maker, src.License, src.Page, src.Name)
+		return errReported
+	}
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(e.stdout, "License: %s, see %s\n", src.License, src.Page)
+	fmt.Fprintf(e.stdout, "Drivers that Windows PE will load (%d):\n", len(p.INFs()))
+	for _, inf := range p.INFs() {
+		fmt.Fprintf(e.stdout, "  %s\n", inf)
+	}
+	fmt.Fprintln(e.stdout, "\nEvery installation from now on is given this pack. 'kyro driver remove "+p.Name+"' takes it out again.")
+	return nil
+}
+
 func (e *env) driverList(args []string) error {
 	c := e.command("driver list", "", "List the driver packs.\n")
 	if _, err := c.parse(args); err != nil {
@@ -136,15 +222,15 @@ func (e *env) driverList(args []string) error {
 		return err
 	}
 	if len(list) == 0 {
-		fmt.Fprintln(e.stdout, "No driver packs. Installations use the drivers that come with Windows. Add a pack with 'kyro driver add <directory>'.")
+		fmt.Fprintln(e.stdout, "No driver packs. Installations use the drivers that come with Windows. Add a pack with 'kyro driver add <directory>', or see 'kyro driver fetch' for packs that Kyro can download.")
 		return nil
 	}
 	w := tabwriter.NewWriter(e.stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tDRIVERS\tFILES\tSIZE\tADDED\tFROM")
+	fmt.Fprintln(w, "NAME\tVERSION\tDRIVERS\tFILES\tSIZE\tADDED\tFROM")
 	var total int64
 	for _, p := range list {
 		total += p.Size()
-		fmt.Fprintf(w, "%s\t%d\t%d\t%s\t%s\t%s\n", p.Name, len(p.INFs()), len(p.Files), size(p.Size()), p.AddedAt.Format("2006-01-02"), p.Source)
+		fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%s\t%s\t%s\n", p.Name, dash(p.Version), len(p.INFs()), len(p.Files), size(p.Size()), p.AddedAt.Format("2006-01-02"), p.Source)
 	}
 	if err := w.Flush(); err != nil {
 		return err
