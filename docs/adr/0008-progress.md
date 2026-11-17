@@ -70,6 +70,11 @@ Names of images have no dots, so no image can be called like a report.
   `setup-failed` with Setup's exit code. The client becomes `failed` at
   once, not after three hours, with that code and the place of Setup's logs
   on the client.
+- **A person closes Setup's window.** That is the same report with the exit
+  code 1223 (the Windows error "The operation was canceled by the user",
+  seen with the Setup of Windows 11 26H2). Kyro records it as "Windows
+  Setup was closed at the machine", not as an error, and the start script
+  says the same on the screen.
 - **The time runs out.** The reason now says where the installation
   stopped and what usually causes that:
 

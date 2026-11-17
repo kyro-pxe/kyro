@@ -387,6 +387,22 @@ func TestStages(t *testing.T) {
 		}
 	})
 
+	t.Run("Setup is closed by a person", func(t *testing.T) {
+		s, _, token := fixture(t)
+		report(t, s, token, EventSetupStarted, true, StageSetupStarted)
+		c, changed, err := s.Report(token, EventSetupFailed, SetupCancelled)
+		if err != nil || !changed || c.State != Failed {
+			t.Fatalf("setup-failed: %+v, %v", c, err)
+		}
+		// It is not called an error, and nobody is sent to read logs.
+		if c.Failure != "Windows Setup was closed at the machine (exit code 1223)" {
+			t.Errorf("failure = %q", c.Failure)
+		}
+		if d := must(s.Boot(machine, ""))(t); d.Install {
+			t.Fatalf("boot after Setup was closed: %+v", d)
+		}
+	})
+
 	t.Run("Setup fails in Windows PE", func(t *testing.T) {
 		s, _, token := fixture(t)
 		report(t, s, token, EventSetupStarted, true, StageSetupStarted)

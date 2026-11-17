@@ -672,6 +672,14 @@ const (
 	EventSetupFailed    = "setup-failed"
 )
 
+// SetupCancelled is the exit code of Windows Setup when a person closes
+// its window: the Windows error ERROR_CANCELLED, "The operation was
+// canceled by the user". Seen with the Setup of Windows 11 26H2.
+const SetupCancelled = "1223"
+
+// setupLogs says where to look after Setup failed.
+const setupLogs = ". Its logs are on the client, in X:\\Windows\\Panther, and its screen shows the reason"
+
 // Report records what the start script in Windows PE says about the
 // installation under a token: that it reached a stage, or that Windows
 // Setup ended with an error, which ends the installation as failed. detail
@@ -708,11 +716,15 @@ func (s *Store) Report(token, event, detail string) (c Client, changed bool, err
 	}
 	if event == EventSetupFailed {
 		rec.State, rec.FinishedAt, rec.Values = Failed, s.now(), nil
-		rec.Failure = "Windows Setup ended with an error in Windows PE"
-		if detail != "" {
-			rec.Failure += " (exit code " + detail + ")"
+		switch detail {
+		case SetupCancelled:
+			// Not an error of the installation: somebody closed Setup.
+			rec.Failure = "Windows Setup was closed at the machine (exit code " + detail + ")"
+		case "":
+			rec.Failure = "Windows Setup ended with an error in Windows PE" + setupLogs
+		default:
+			rec.Failure = "Windows Setup ended with an error in Windows PE (exit code " + detail + ")" + setupLogs
 		}
-		rec.Failure += ". Its logs are on the client, in X:\\Windows\\Panther, and its screen shows the reason"
 		return *rec, true, s.write(rec)
 	}
 	if !rec.advance(stage, s.now()) {

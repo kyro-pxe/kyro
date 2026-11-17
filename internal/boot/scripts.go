@@ -249,7 +249,12 @@ func startScript(p startParams) ([]byte, error) {
 		`set KYRO_RC=%ERRORLEVEL%`,
 		report(state.EventSetupFailed+`.%KYRO_RC%`),
 		`echo.`,
+		// 1223 is what Setup returns when a person closes its window.
+		`if "%KYRO_RC%"=="`+state.SetupCancelled+`" goto setupclosed`,
 		`echo Kyro: Windows Setup ended with an error. Its logs are in X:\Windows\Panther.`,
+		`goto stopped`,
+		`:setupclosed`,
+		`echo Kyro: Windows Setup was closed.`,
 		`:stopped`,
 		`echo Kyro: this installation has stopped. Arm the client again to retry.`,
 		`cmd.exe /k`,

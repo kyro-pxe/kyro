@@ -434,6 +434,13 @@ func TestReportsOverTheShare(t *testing.T) {
 		":setupfailed\r\n",
 		"set KYRO_RC=%ERRORLEVEL%\r\n",
 		`(set /p KYRO_NONE=<%KYRO_REPORT%.setup-failed.%KYRO_RC%) 2>nul` + "\r\n",
+		// A person who closes Setup is not told of an error.
+		`if "%KYRO_RC%"=="1223" goto setupclosed` + "\r\n",
+		"echo Kyro: Windows Setup ended with an error.",
+		"goto stopped\r\n",
+		":setupclosed\r\n",
+		"echo Kyro: Windows Setup was closed.\r\n",
+		":stopped\r\n",
 	} {
 		i := strings.Index(start[at:], want)
 		if i < 0 {
