@@ -27,6 +27,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -146,6 +147,74 @@ func TestExampleProfile(t *testing.T) {
 	if bytes.Contains(out, []byte("{{")) {
 		t.Error("rendered example still contains a token")
 	}
+}
+
+// The interactive example is the one profile that Kyro itself says leaves
+// disks alone, so what it contains is pinned here.
+func TestInteractiveExample(t *testing.T) {
+	imp, err := profiles.Parse(example.Interactive(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := imp.Profile
+	if p.Name != example.InteractiveName || p.Name == example.Name {
+		t.Errorf("name = %q", p.Name)
+	}
+	if p.WipesDisk() || len(p.DetectedWipe) != 0 {
+		t.Errorf("the interactive example counts as wiping: %q", p.WipeReason())
+	}
+	if len(p.Warnings) < 2 || !strings.Contains(strings.Join(p.Warnings, " "), "a person at the machine can") {
+		t.Errorf("warnings = %q", p.Warnings)
+	}
+	if got := strings.Join(p.Tokens, " "); got != "callback_url" || len(p.Variables) != 0 {
+		t.Errorf("tokens = %q, variables = %q", got, p.Variables)
+	}
+	if len(imp.Notes) != 0 {
+		t.Errorf("notes = %q", imp.Notes)
+	}
+
+	// Nothing in it answers a question of Setup: one pass, one component,
+	// and in it only the command that calls back.
+	var doc struct {
+		Settings []struct {
+			Pass       string `xml:"pass,attr"`
+			Components []struct {
+				Name     string `xml:"name,attr"`
+				Children []struct {
+					XMLName xml.Name
+				} `xml:",any"`
+			} `xml:"component"`
+		} `xml:"settings"`
+	}
+	if err := xml.Unmarshal(imp.AnswerFile, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Settings) != 1 || doc.Settings[0].Pass != "oobeSystem" || len(doc.Settings[0].Components) != 1 {
+		t.Fatalf("settings = %+v", doc.Settings)
+	}
+	c := doc.Settings[0].Components[0]
+	if c.Name != "Microsoft-Windows-Shell-Setup" || len(c.Children) != 1 || c.Children[0].XMLName.Local != "FirstLogonCommands" {
+		t.Errorf("component = %+v", c)
+	}
+	for _, word := range []string{"DiskConfiguration", "ImageInstall", "InstallTo", "WillWipeDisk", "AcceptEula", "Password", "RunSynchronous"} {
+		if bytes.Contains(stripComments(imp.AnswerFile), []byte(word)) {
+			t.Errorf("the interactive example contains %s", word)
+		}
+	}
+
+	out, err := profiles.Render(imp.AnswerFile, profiles.Values{MAC: "525400770001", CallbackURL: "http://192.168.77.1/api/v1/callback/0123456789abcdef0123456789abcdef"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out, []byte("-X POST http://192.168.77.1/api/v1/callback/0123456789abcdef0123456789abcdef<")) || bytes.Contains(out, []byte("{{")) {
+		t.Errorf("rendered:\n%s", out)
+	}
+}
+
+// stripComments removes XML comments, which explain in words what the
+// file does not do.
+func stripComments(data []byte) []byte {
+	return regexp.MustCompile(`(?s)<!--.*?-->`).ReplaceAll(data, nil)
 }
 
 func TestWipeDetection(t *testing.T) {

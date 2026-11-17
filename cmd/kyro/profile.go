@@ -87,19 +87,29 @@ answer file (autounattend.xml); which one is decided by its content.
 
 --example imports the profile that ships with Kyro. It is a test fixture:
 it wipes disk 0 and creates an account with a public password.
+
+--example-interactive imports a profile that answers none of Setup's
+questions. Setup asks on the screen, and no disk is changed unless a person
+at the machine picks one there. It is for trying Kyro and driver packs on a
+machine whose disk has to stay as it is.
 `)
 	name := c.String("name", "", "name of the profile (default: from the bundle, or from the file name)")
 	replace := c.Bool("replace", false, "overwrite a profile of the same name")
 	useExample := c.Bool("example", false, "import the built-in example profile instead of a file")
+	useInteractive := c.Bool("example-interactive", false, "import the built-in profile that leaves every question to Setup's screens")
 	pos, err := c.parse(args)
 	if err != nil {
 		return err
 	}
 	var data []byte
 	switch {
+	case *useExample && *useInteractive:
+		return usageErr("--example and --example-interactive are two profiles; import one at a time")
 	case *useExample && len(pos) == 0:
 		data = example.Bundle()
-	case !*useExample && len(pos) == 1:
+	case *useInteractive && len(pos) == 0:
+		data = example.Interactive()
+	case !*useExample && !*useInteractive && len(pos) == 1:
 		f, err := os.Open(pos[0])
 		if err != nil {
 			return err
@@ -110,7 +120,7 @@ it wipes disk 0 and creates an account with a public password.
 			return err
 		}
 	default:
-		return usageErr("name one file, or use --example")
+		return usageErr("name one file, or use --example or --example-interactive")
 	}
 	cfg, err := c.config()
 	if err != nil {
@@ -153,7 +163,7 @@ func (e *env) profileList(args []string) error {
 		return err
 	}
 	if len(list) == 0 {
-		fmt.Fprintln(e.stdout, "No profiles. Import one with 'kyro profile import <file>', or the example with 'kyro profile import --example'.")
+		fmt.Fprintln(e.stdout, "No profiles. Import one with 'kyro profile import <file>', or an example with 'kyro profile import --example' or '--example-interactive'.")
 		return nil
 	}
 	w := tabwriter.NewWriter(e.stdout, 0, 0, 2, ' ', 0)

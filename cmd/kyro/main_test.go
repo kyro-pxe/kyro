@@ -186,6 +186,22 @@ func TestProfileCommands(t *testing.T) {
 	wants(t, c.fails(1, "profile", "import", "--example"), "exists; use --replace")
 	c.ok("profile", "import", "--example", "--replace")
 
+	// The second built-in profile leaves every question to Setup.
+	out = c.ok("profile", "import", "--example-interactive")
+	wants(t, out,
+		"Profile kyro-example-interactive imported.",
+		"answers none of its questions",
+		"Disks: the bundle says that it leaves disks alone",
+		"WARNING from the bundle: Not an unattended installation",
+		"a person at the machine can",
+		"Filled in per client: {{callback_url}}\n",
+	)
+	if strings.Contains(out, "confirm-wipe") {
+		t.Errorf("the interactive example asks for --confirm-wipe:\n%s", out)
+	}
+	wants(t, c.fails(2, "profile", "import", "--example", "--example-interactive"), "one at a time")
+	wants(t, c.fails(2, "profile", "import", "--example-interactive", write("extra.xml", bareAnswer)), "name one file, or use --example or --example-interactive")
+
 	// A bare answer file gets its name from the file, and the notes about
 	// what will not be replaced.
 	out = c.ok("profile", "import", write("Office Laptops.xml", bareAnswer))
@@ -197,7 +213,7 @@ func TestProfileCommands(t *testing.T) {
 	wants(t, out, "leaves disks alone", "carries no warnings. That is not a statement that it is harmless")
 
 	out = c.ok("profile", "list")
-	wants(t, out, "NAME", "kyro-example", "office-laptops", "second", "harmless")
+	wants(t, out, "NAME", "kyro-example", "kyro-example-interactive", "office-laptops", "second", "harmless")
 	out = c.ok("profile", "show", "kyro-example")
 	wants(t, out, "Profile kyro-example", "from a bundle", "sha256 ", "DISKS")
 	if xml := c.ok("profile", "show", "second", "--xml"); xml != bareAnswer {
@@ -215,7 +231,7 @@ func TestProfileCommands(t *testing.T) {
 	}
 	wants(t, c.fails(1, "profile", "show", "bad"), "there is no profile")
 	wants(t, c.fails(1, "profile", "import", write("y.xml", bareAnswer), "--name", "../escape"), "cannot be a profile name")
-	wants(t, c.fails(2, "profile", "import"), "name one file, or use --example")
+	wants(t, c.fails(2, "profile", "import"), "name one file, or use --example or --example-interactive")
 
 	wants(t, c.ok("profile", "remove", "second"), "removed")
 	wants(t, c.fails(1, "profile", "remove", "second"), "there is no profile")
@@ -523,4 +539,21 @@ func TestArmWithValues(t *testing.T) {
 	if raw, err := os.ReadFile(filepath.Join(c.data, "state", "mac-525400770001.json")); err == nil && strings.Contains(string(raw), "AAAAA") {
 		t.Errorf("the value is still in the record after disarm:\n%s", raw)
 	}
+}
+
+// The interactive example installs nothing by itself, so arming for it
+// needs no --confirm-wipe. Its warnings are still shown.
+func TestArmInteractiveExample(t *testing.T) {
+	c := newCLI(t)
+	c.ok("image", "add", imagetest.Write(t), "--name", "win11")
+	c.ok("profile", "import", "--example-interactive")
+
+	out := c.ok("arm", "52:54:00:77:00:01", "--image", "win11", "--profile", "kyro-example-interactive")
+	wants(t, out,
+		"Armed: mac:52:54:00:77:00:01 will be installed with image win11 and profile kyro-example-interactive",
+		"Disks: the bundle says that it leaves disks alone",
+		"WARNING from the bundle: Not an unattended installation",
+		"WARNING from the bundle: Kyro wipes nothing with this profile, but a person at the machine can",
+		"WARNING from the bundle: Windows PE reads the disks",
+	)
 }

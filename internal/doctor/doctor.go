@@ -501,7 +501,7 @@ func checkData(sys System, cfg config.Config) []Finding {
 	case err != nil:
 		out = append(out, Finding{Level: Fail, Title: "Profiles", Detail: err.Error()})
 	case len(profs) == 0:
-		out = append(out, Finding{Level: Info, Title: "Profiles", Detail: "None yet.", Fix: []string{"kyro profile import /path/to/profile", "kyro profile import --example   (a test fixture that wipes disk 0)"}})
+		out = append(out, Finding{Level: Info, Title: "Profiles", Detail: "None yet.", Fix: []string{"kyro profile import /path/to/profile", "kyro profile import --example   (a test fixture that wipes disk 0)", "kyro profile import --example-interactive   (Setup asks on the screen; installs nothing by itself)"}})
 	default:
 		names := make([]string, len(profs))
 		for i, p := range profs {
