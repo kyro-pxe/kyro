@@ -426,14 +426,14 @@ func TestReportsOverTheShare(t *testing.T) {
 	for _, want := range []string{
 		`set KYRO_REPORT=%KYRO_SHARE%\kyro-report.` + armed.Token + "\r\n",
 		"net use %KYRO_SHARE%",
-		`set /p KYRO_NONE=<%KYRO_REPORT%.share-connected 2>nul` + "\r\n",
-		`set /p KYRO_NONE=<%KYRO_REPORT%.setup-started 2>nul` + "\r\n",
+		`(set /p KYRO_NONE=<%KYRO_REPORT%.share-connected) 2>nul` + "\r\n",
+		`(set /p KYRO_NONE=<%KYRO_REPORT%.setup-started) 2>nul` + "\r\n",
 		`X:\sources\setup.exe`,
 		"if errorlevel 1 goto setupfailed\r\n",
-		`set /p KYRO_NONE=<%KYRO_REPORT%.setup-finished 2>nul` + "\r\n",
+		`(set /p KYRO_NONE=<%KYRO_REPORT%.setup-finished) 2>nul` + "\r\n",
 		":setupfailed\r\n",
 		"set KYRO_RC=%ERRORLEVEL%\r\n",
-		`set /p KYRO_NONE=<%KYRO_REPORT%.setup-failed.%KYRO_RC% 2>nul` + "\r\n",
+		`(set /p KYRO_NONE=<%KYRO_REPORT%.setup-failed.%KYRO_RC%) 2>nul` + "\r\n",
 	} {
 		i := strings.Index(start[at:], want)
 		if i < 0 {

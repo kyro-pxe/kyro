@@ -185,8 +185,11 @@ func startScript(p startParams) ([]byte, error) {
 	// A report: the script tries to read a file on the share whose name
 	// says what happened. There is no such file; Kyro notes that it was
 	// asked for. Windows PE has no program that could send an HTTP request.
+	// The parentheses are needed: cmd.exe complains about the missing file
+	// before it gets to a "2>nul" on the same command, and that complaint
+	// on the screen looks like an error of the installation.
 	report := func(event string) string {
-		return `set /p KYRO_NONE=<%KYRO_REPORT%.` + event + ` 2>nul`
+		return `(set /p KYRO_NONE=<%KYRO_REPORT%.` + event + `) 2>nul`
 	}
 	lines := []string{
 		`@echo off`,

@@ -47,8 +47,14 @@ The start script reports by asking the install share for a file that does
 not exist:
 
 ```bat
-set /p KYRO_NONE=<\\kyro\install\kyro-report.<token>.share-connected 2>nul
+(set /p KYRO_NONE=<\\kyro\install\kyro-report.<token>.share-connected) 2>nul
 ```
+
+The parentheses matter. Without them `cmd.exe` writes "The system cannot
+find the file specified." on the screen before it gets to the `2>nul`, and
+a person at the machine reads that as an error. The first version of the
+script had that mistake; it was seen on the screen of a virtual machine and
+corrected.
 
 Kyro's SMB server asks its file tree for that name; the tree notes the
 report and answers that there is no such file. No write access to the
@@ -98,6 +104,6 @@ Names of images have no dots, so no image can be called like a report.
 - Records, `kyro clients --json` and `/api/v1/clients` have new fields:
   `stage`, `stage_at`, `restarts`, and, while an installation runs,
   `progress`.
-- The start script has four more lines. Each is a failed attempt to read a
-  file and prints nothing.
+- The start script has four more lines for the reports. Each is a failed
+  attempt to read a file and prints nothing.
 - The log of the service gets one line per stage of each installation.
