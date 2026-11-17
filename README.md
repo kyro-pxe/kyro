@@ -96,6 +96,11 @@ you care about.
 sudo kyro profile import --example
 ```
 
+There is a second built-in profile, `--example-interactive`, that answers
+none of Setup's questions and so installs nothing by itself. It is for
+looking at a machine before you install it; see
+[Trying drivers without installing](#trying-drivers-without-installing).
+
 Kyro shows the profile's warnings on import and again when you arm.
 
 **5. Arm a client.** A profile that wipes a disk needs `--confirm-wipe`.
@@ -179,6 +184,42 @@ Every installation is given all stored packs. A driver is code that runs
 with full rights on every machine it is loaded on: add drivers from the
 maker of the hardware only. [ADR 0007](docs/adr/0007-drivers.md) has the
 details and what was tested.
+
+### Trying drivers without installing
+
+To find out whether Windows PE gets a network and sees the disk of a
+machine, without installing it, use the profile that leaves every question
+to Setup's screens:
+
+```sh
+sudo kyro profile import --example-interactive
+sudo kyro arm 52:54:00:12:34:56 --image win11 --profile kyro-example-interactive
+```
+
+Boot the machine from the network. What to look at:
+
+- The black window at the start lists each driver that Windows PE loaded
+  (`DrvLoad: Successfully loaded ...`) and says whether the install share
+  was connected. If it was, the network card works.
+- Windows Setup then opens and waits at its first page. Go on to "Where do
+  you want to install Windows?": the disks listed there are the ones the
+  storage drivers made visible. `Shift+F10` opens a command prompt
+  (`diskpart`, then `list disk`).
+- **Close Setup's window to end the test.** Kyro records the client as
+  `failed` with "Windows Setup was closed at the machine", and the machine
+  boots from its disk the next time.
+
+Nothing is installed unless somebody picks a disk on that page and goes
+on; from there it is an ordinary manual installation, and Setup deletes
+what that person tells it to. The profile needs no `--confirm-wipe`
+because Kyro itself changes no disk with it.
+
+Windows PE is still a Windows that has started on the machine. It reads the
+file systems it finds, as a Windows installation USB stick does. In Kyro's
+test with a prepared disk the partition table, the FAT32 partition and all
+files were the same afterwards, and 337 sectors inside the NTFS partition
+had changed: what Windows writes into an NTFS volume when it opens it. On a
+completely empty disk it wrote a four-byte disk signature.
 
 ## Known limitations
 

@@ -143,6 +143,12 @@ without packs. `install.sh` was run once from a terminal in a container
 with the default answers: it showed Intel's license, downloaded the driver
 from Intel and stored it.
 
+To try packs on a machine without installing it, there is a built-in
+profile that leaves every question to Setup's screens (`kyro profile import
+--example-interactive`): Windows PE loads the packs and Setup's disk page
+shows which disks it sees. In the virtual machine above it listed the disk
+behind the virtio controller.
+
 **Not tested: Intel VMD hardware.** QEMU has no such controller. What is
 shown for the Intel driver is that Windows PE accepts and loads the
 package and that it arrives in the installed system. That it makes a disk
