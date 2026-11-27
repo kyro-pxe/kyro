@@ -25,8 +25,8 @@ Download the installer and the checksum file of a release, check the
 installer, and run it as root:
 
 ```sh
-curl -fsSLO https://github.com/kyro-pxe/kyro/releases/download/v0.1.0-alpha/install.sh
-curl -fsSLO https://github.com/kyro-pxe/kyro/releases/download/v0.1.0-alpha/SHA256SUMS
+curl -fsSLO https://github.com/kyro-pxe/kyro/releases/download/v0.2.0/install.sh
+curl -fsSLO https://github.com/kyro-pxe/kyro/releases/download/v0.2.0/SHA256SUMS
 sha256sum --check --ignore-missing SHA256SUMS
 sudo sh install.sh
 ```
@@ -52,7 +52,7 @@ Without Internet access on the server, copy the tarball, `SHA256SUMS`,
 `wimboot` and `ipxeboot.tar.gz` to it:
 
 ```sh
-sudo sh install.sh --tarball kyro_0.1.0-alpha_linux_amd64.tar.gz --checksums SHA256SUMS \
+sudo sh install.sh --tarball kyro_0.2.0_linux_amd64.tar.gz --checksums SHA256SUMS \
     --bootfiles-from /path/to/bootfiles
 ```
 
@@ -80,6 +80,28 @@ It never changes the firewall. `kyro doctor` prints the commands for `ufw`,
 Running the installer again is safe. It replaces the program and the unit,
 keeps the configuration, the user and all data, and restarts the service if
 it was running. That is also how to upgrade.
+
+### Upgrading from v0.1.0-alpha
+
+Run the `install.sh` of v0.2.0 as above. What changes for an existing
+server:
+
+- A client armed with v0.1.0-alpha stays armed until 24 hours after it was
+  armed; older armings count as run out, and the client has to be armed
+  again ([ADR 0006](adr/0006-arming-expires.md)).
+- `arm_timeout` is a new setting. The existing configuration is not
+  rewritten; without the setting an arming lasts 24 hours.
+- The installer creates `/var/lib/kyro/drivers` and offers Intel's storage
+  driver, as on a new installation (see [Drivers](#drivers)).
+
+This was tested in a Debian 13 container: v0.1.0-alpha installed from its
+release page, then upgraded. It was not tried on a real server, nor with
+an installation running during the upgrade.
+
+Replacing only the program (`/usr/local/bin/kyro`) and restarting the
+service also works. The driver directory is then created by the first
+`kyro driver add` or `kyro driver fetch`, with the owner of the data
+directory.
 
 ### Files and who may do what
 

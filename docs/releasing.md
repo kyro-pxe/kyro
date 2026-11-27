@@ -14,7 +14,7 @@ artifact `release-dry-run`. It creates no tag and no release.
 Locally, the same build:
 
 ```sh
-make release VERSION=v0.1.0-alpha   # files in dist/
+make release VERSION=v0.2.0   # files in dist/
 ```
 
 ## A release
@@ -27,8 +27,8 @@ make release VERSION=v0.1.0-alpha   # files in dist/
 3. Tag and push the tag:
 
    ```sh
-   git tag -s v0.1.0-alpha -m "Kyro v0.1.0-alpha"   # or -a without a GPG key
-   git push origin v0.1.0-alpha
+   git tag -s v0.2.0 -m "Kyro v0.2.0"   # or -a without a GPG key
+   git push origin v0.2.0
    ```
 
 4. The workflow builds `kyro_<version>_linux_amd64.tar.gz`, `install.sh`

@@ -9,7 +9,7 @@
 #   install.sh                          the installer, tied to this version
 #   SHA256SUMS                          checksums of both
 #
-# Usage: scripts/release/build.sh v0.1.0-alpha
+# Usage: scripts/release/build.sh v0.2.0
 #
 # It builds what is in the working tree and publishes nothing.
 
@@ -19,7 +19,7 @@ version=${1:-}
 case "$version" in
 v[0-9]*) ;;
 *)
-	echo "usage: $0 <version>, for example v0.1.0-alpha" >&2
+	echo "usage: $0 <version>, for example v0.2.0" >&2
 	exit 2
 	;;
 esac

@@ -61,8 +61,8 @@ project signed ([ADR 0005](docs/adr/0005-secure-boot.md)).
 [docs/install.md](docs/install.md) has the details.
 
 ```sh
-curl -fsSLO https://github.com/kyro-pxe/kyro/releases/download/v0.1.0-alpha/install.sh
-curl -fsSLO https://github.com/kyro-pxe/kyro/releases/download/v0.1.0-alpha/SHA256SUMS
+curl -fsSLO https://github.com/kyro-pxe/kyro/releases/download/v0.2.0/install.sh
+curl -fsSLO https://github.com/kyro-pxe/kyro/releases/download/v0.2.0/SHA256SUMS
 sha256sum --check --ignore-missing SHA256SUMS
 sudo sh install.sh
 ```
@@ -293,7 +293,7 @@ Other targets:
 make test            # go test ./...
 make lint            # gofmt, go vet, shellcheck
 make fuzz            # every fuzz test, one minute each (FUZZTIME=10m for longer)
-make release VERSION=v0.1.0-alpha   # release files in dist/, publishes nothing
+make release VERSION=v0.2.0         # release files in dist/, publishes nothing
 make test-installer  # install.sh in containers; see scripts/test-installer
 make e2e             # installs Windows in a virtual machine; see scripts/e2e
 make clean
