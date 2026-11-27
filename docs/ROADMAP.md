@@ -11,6 +11,15 @@ Status values:
 - **tested**: working, and covered by automated tests or a documented,
   reproducible test run.
 
+## Releases
+
+| Version | Date | What it is |
+| ------- | ---- | ---------- |
+| v0.1.0-alpha | 2026-11-15 | The first version that does the whole job once. Plan and results: [ALPHA.md](ALPHA.md). |
+| v0.2.0 | not tagged yet | Armings that run out, driver packs, progress and failure reasons, values per client, a profile that installs nothing by itself. Plan and results: [v0.2.0.md](v0.2.0.md). |
+
+Items marked "New in v0.2.0" below are not in v0.1.0-alpha.
+
 "Tested" never means more than the notes say. In particular, every
 installation of Windows so far happened in a virtual machine (QEMU with
 OVMF) with one ISO, the Windows 11 Enterprise evaluation. Nothing was tried
@@ -41,7 +50,7 @@ The first, second and fourth run used the unsigned iPXE, which is now what
 | ---- | ------ | ----- |
 | How Windows Setup gets its install source | tested | [ADR 0001](adr/0001-windows-install-source.md): SMB, embedded by default. |
 | Which SMB server to embed | tested | [ADR 0003](adr/0003-smb-server-library.md): `jfjallid/go-smb` with Kyro's own read-only file system. |
-| Profiles | working | [ADR 0002](adr/0002-profiles.md), accepted for the alpha. The bundle format is provisional (`bundle_version` 0); the specification shared with the website is still missing. |
+| Profiles | working | [ADR 0002](adr/0002-profiles.md), accepted for the alpha. It is the specification that the website's generator follows (decided on 2026-11-14). The bundle format is provisional (`bundle_version` 0). `{{var:NAME}}` was added to it on 2026-11-16; whether the website's generator writes it was not checked here. |
 | Client state | tested | [ADR 0004](adr/0004-client-state.md): one JSON file per client. |
 
 ## Network boot
@@ -74,15 +83,15 @@ The first, second and fourth run used the unsigned iPXE, which is now what
 | `kyro share`: the SMB server on its own | tested | For testing. |
 | `kyro profile import`, `list`, `show`, `remove` | tested | Bare `autounattend.xml` or a bundle. Unit and fuzz tests. |
 | Built-in example profile | tested | A test fixture: wipes disk 0, public password. e2e installs with it. Made for the evaluation ISO. |
-| Built-in profile that leaves every question to Setup (`kyro profile import --example-interactive`) | tested | Not in v0.1.0-alpha. For looking at a machine, and at what the driver packs do on it, without installing. Unit tests, and three starts by hand in a virtual machine with virtio hardware and the packs `virtio` and `intel-rst`: Setup waited at its first page; its disk page listed the disk behind the virtio controller; closing Setup made the client `failed` at once. A prepared disk (GPT, FAT32, NTFS with files) was compared before and after two of the starts: partition table, FAT32 partition, unpartitioned space and all files identical, 337 sectors inside the NTFS partition changed, which is taken to be what Windows writes when it opens an NTFS volume. That volume was made on Linux; one made by Windows, or one encrypted with BitLocker, was not tried. An empty disk got a four-byte disk signature. Not tried: installing by hand to the end with this profile, and its callback after that. |
+| Built-in profile that leaves every question to Setup (`kyro profile import --example-interactive`) | tested | New in v0.2.0. For looking at a machine, and at what the driver packs do on it, without installing. Unit tests, and three starts by hand in a virtual machine with virtio hardware and the packs `virtio` and `intel-rst`: Setup waited at its first page; its disk page listed the disk behind the virtio controller; closing Setup made the client `failed` at once. A prepared disk (GPT, FAT32, NTFS with files) was compared before and after two of the starts: partition table, FAT32 partition, unpartitioned space and all files identical, 337 sectors inside the NTFS partition changed, which is taken to be what Windows writes when it opens an NTFS volume. That volume was made on Linux; one made by Windows, or one encrypted with BitLocker, was not tried. An empty disk got a four-byte disk signature. Not tried: installing by hand to the end with this profile, and its callback after that. |
 | Token substitution (`{{mac}}`, `{{serial}}`, `{{uuid}}`, `{{callback_url}}`) | tested | Unit and fuzz tests. `{{mac}}` and `{{callback_url}}` in e2e; `{{serial}}` and `{{uuid}}` in unit tests only. |
 | Warnings of a profile shown at import and when arming | tested | Unit tests. |
 | Detecting that a profile wipes a disk | tested | Declared in the bundle, or detected in the XML; a bare answer file counts as wiping. Unit tests. |
-| Values per client from the administrator (`{{var:NAME}}`, `kyro arm --set`) | tested | Not in v0.1.0-alpha. Unit and fuzz tests; one e2e run in which the computer name was given with `--set`: arming without it was refused, the installed Windows asked for its address under that name, and the value was gone from the record afterwards. Values with characters that need escaping were only tried in unit tests. [ADR 0002](adr/0002-profiles.md). |
+| Values per client from the administrator (`{{var:NAME}}`, `kyro arm --set`) | tested | New in v0.2.0. Unit and fuzz tests; one e2e run in which the computer name was given with `--set`: arming without it was refused, the installed Windows asked for its address under that name, and the value was gone from the record afterwards. Values with characters that need escaping were only tried in unit tests. [ADR 0002](adr/0002-profiles.md). |
 | Menu of images and profiles for a person at the client | planned | By design no menu can start an installation in this version. |
 | Hardware requirement bypass (LabConfig) per image | planned | Opt-in, see ADR 0001. Until then your answer file has to deal with it. |
-| Driver packs for Windows PE and the installed system (`kyro driver add`) | tested | Not in v0.1.0-alpha. Unit tests; one e2e run on a virtual machine with a virtio network card and a virtio SCSI controller: Windows PE loaded the packs, the installation finished, and the drivers were in the driver store of the installed Windows. Without packs the same machine stopped in Windows PE, unable to reach the share. All packs go to every installation. [ADR 0007](adr/0007-drivers.md). |
-| Fetching driver packs from their makers (`kyro driver fetch`) | tested | Not in v0.1.0-alpha. `intel-rst`, `intel-rst-11`, `virtio`, with pinned checksums. Unit tests against local servers; each was fetched from its maker once by hand. |
+| Driver packs for Windows PE and the installed system (`kyro driver add`) | tested | New in v0.2.0. Unit tests; one e2e run on a virtual machine with a virtio network card and a virtio SCSI controller: Windows PE loaded the packs, the installation finished, and the drivers were in the driver store of the installed Windows. Without packs the same machine stopped in Windows PE, unable to reach the share. All packs go to every installation. [ADR 0007](adr/0007-drivers.md). |
+| Fetching driver packs from their makers (`kyro driver fetch`) | tested | New in v0.2.0. `intel-rst`, `intel-rst-11`, `virtio`, with pinned checksums. Unit tests against local servers; each was fetched from its maker once by hand. |
 | Intel VMD storage driver on real hardware | working | The pack `intel-rst` was loaded by Windows PE in a virtual machine and arrived in the installed Windows. No machine with an Intel VMD controller was tried, so whether Setup then finds the disk is untested. `intel-rst-11` was only fetched. |
 | Driver packs per client or per image | planned | |
 | External SMB server (`smb.mode: external`) | planned | |
@@ -98,8 +107,8 @@ The first, second and fourth run used the unsigned iPXE, which is now what
 | `--confirm-wipe` for profiles that wipe a disk | tested | Unit tests; e2e. |
 | Callback from the installed system | tested | Unit and fuzz tests; e2e. Rate and size limited. Not authentication. |
 | `failed` after `install_timeout` | tested | Unit tests only. |
-| Progress of an installation, and where it stopped when it fails | tested | Not in v0.1.0-alpha. Stages reported by the start script in Windows PE over the install share, and Setup's restarts counted. Unit and fuzz tests, and a test with an SMB client; e2e: Windows PE reported that it connected the share and started Setup, 30 seconds after it was given the installer, and Setup's restarts were counted. `setup-finished` did not come, as expected: Setup restarted the machine itself. `setup-failed` was produced by a real Setup three times, each time by closing its window (exit code 1223); a Setup that fails by itself, and the reasons after a timeout, were never produced by a real installation. [ADR 0008](adr/0008-progress.md). |
-| An arming runs out (`arm_timeout`, `kyro arm --expires`) | tested | Not in v0.1.0-alpha. Unit and fuzz tests; e2e: a second machine was armed for two minutes, booted half an hour later, was sent to its disk, and its disk stayed empty. [ADR 0006](adr/0006-arming-expires.md). |
+| Progress of an installation, and where it stopped when it fails | tested | New in v0.2.0. Stages reported by the start script in Windows PE over the install share, and Setup's restarts counted. Unit and fuzz tests, and a test with an SMB client; e2e: Windows PE reported that it connected the share and started Setup, 30 seconds after it was given the installer, and Setup's restarts were counted. `setup-finished` did not come, as expected: Setup restarted the machine itself. `setup-failed` was produced by a real Setup three times, each time by closing its window (exit code 1223); a Setup that fails by itself, and the reasons after a timeout, were never produced by a real installation. [ADR 0008](adr/0008-progress.md). |
+| An arming runs out (`arm_timeout`, `kyro arm --expires`) | tested | New in v0.2.0. Unit and fuzz tests; e2e: a second machine was armed for two minutes, booted half an hour later, was sent to its disk, and its disk stayed empty. [ADR 0006](adr/0006-arming-expires.md). |
 | Menu for unknown clients (`unknown_clients: menu`) | tested | Off by default. Unit tests only; shows identifiers and boots the disk. |
 | Read-only status page and JSON (`/api/v1/clients`) | tested | Unit tests. Listens on `127.0.0.1:8080` by default. |
 
@@ -108,12 +117,14 @@ The first, second and fourth run used the unsigned iPXE, which is now what
 | Item | Status | Notes |
 | ---- | ------ | ----- |
 | `kyro doctor` | tested | Configuration, interface, ports, conflicting services, firewalls (prints commands, changes nothing), boot files, disk space. Unit tests with described machines; run by hand in the e2e network and in containers. The firewall and service checks were not run against real ufw, firewalld or Samba installations. |
-| `install.sh` | tested | `make test-installer`: Debian 13, Ubuntu 24.04 and Fedora 43 containers; under systemd in a Debian 13 container. Never run on a real server, and never against a real release page, because there is no release yet. |
+| `install.sh` | tested | `make test-installer`: Debian 13, Ubuntu 24.04 and Fedora 43 containers; under systemd in a Debian 13 container. Last passed on 2026-11-27. Run against the real release page once, in the upgrade test below. Never run on a real server. |
+| Upgrading from v0.1.0-alpha | tested | New in v0.2.0. On 2026-11-27 in a Debian 13 container: v0.1.0-alpha installed by its published `install.sh`, which downloaded its tarball from the GitHub release page; an image, a profile and an armed client added; then v0.2.0 installed over it from a local tarball. Image, profile, configuration and the armed client were kept; the client counts as armed until 24 hours after it was armed ([ADR 0006](adr/0006-arming-expires.md)); `/var/lib/kyro/drivers` was created as `root:kyro` 0750 and a pack added afterwards was readable by the service user. Not done: an upgrade with the service running under systemd, or of a server in the middle of an installation. |
+| Upgrading by replacing the program only | working | New in v0.2.0. A store directory that the CLI has to create, such as `drivers/` on a server set up by the alpha's installer, gets the owner of the data directory, so that the service can read it. Before the fix, found while preparing v0.2.0, it belonged to root alone. Unit test, and the program before and after compared by hand as root. |
 | systemd unit with `CAP_NET_BIND_SERVICE` only | tested | Capabilities and listening ports checked on the running service in the installer test. e2e installs Windows from a Kyro that runs as an unprivileged user with that one capability and the installer's file permissions; it is started by `setpriv` there, not by systemd, so the unit's other sandbox settings were not part of an installation. |
-| Release build | tested | `make release`: tarball, installer, `SHA256SUMS` for linux/amd64; the same commit gives the same tarball. The GitHub workflow that attaches them to a draft release has never run: it runs only on a pushed `v*` tag, and none exists yet. A manual dry run is possible ([releasing.md](releasing.md)). |
+| Release build | tested | `make release`: tarball, installer, `SHA256SUMS` for linux/amd64; the same commit gives the same tarball. The GitHub workflow built the files of v0.1.0-alpha from its tag on 2026-11-15 and attached them to the draft that was published. A manual dry run is possible ([releasing.md](releasing.md)). |
 | Docker image and Compose example | working | Built and run on a private bridge network. Not tried with host networking or a booting client. |
-| End-to-end test in QEMU | tested | `make e2e`. Six passing runs, see above. |
-| Signed releases | planned | Checksums only. |
+| End-to-end test in QEMU | tested | `make e2e`. Ten passing runs, see above. The last one was on commit `e37ef4e`; it was not run on the commit of v0.2.0 ([v0.2.0.md](v0.2.0.md) says why and what changed since). |
+| Signed releases | in progress | The tag v0.1.0-alpha carries an OpenPGP signature of the maintainer. GitHub does not show it as verified, because the e-mail address in the tag is not one of the account. The release files have SHA-256 checksums and no signature, and the repository has no file with the public key yet. |
 | linux/arm64 server | planned | |
 | Windows and macOS as server | planned | |
 

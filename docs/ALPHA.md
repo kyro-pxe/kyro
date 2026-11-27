@@ -7,6 +7,9 @@ Windows over the network without anyone touching it.
 This file is the plan and the record of the small decisions made on the way.
 What actually works is in [ROADMAP.md](ROADMAP.md), nowhere else.
 
+v0.1.0-alpha was released on 2026-11-15. The next version is planned and
+recorded in [v0.2.0.md](v0.2.0.md).
+
 ## In scope
 
 - Linux server, x86-64. UEFI clients with Secure Boot switched off.
