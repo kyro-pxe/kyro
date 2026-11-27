@@ -212,7 +212,7 @@ func (s *Store) Add(src, name string, opts AddOptions) (Image, error) {
 	if !ValidName(name) {
 		return Image{}, fmt.Errorf("%q cannot be an image name: use 1 to 32 lower-case letters, digits and hyphens, not starting with a hyphen", name)
 	}
-	if err := os.MkdirAll(s.dir, 0o750); err != nil {
+	if err := fsutil.MkdirStore(s.dir); err != nil {
 		return Image{}, err
 	}
 	if _, err := os.Lstat(s.metaPath(name)); err == nil {

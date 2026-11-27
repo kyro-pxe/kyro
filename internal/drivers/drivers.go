@@ -224,7 +224,7 @@ func (s *Store) add(src, name string, replace bool, note Pack) (Pack, error) {
 		return Pack{}, fmt.Errorf("with this pack all packs together would have %d files; the limit is %d", count, MaxFiles)
 	}
 
-	if err := os.MkdirAll(s.dir, 0o750); err != nil {
+	if err := fsutil.MkdirStore(s.dir); err != nil {
 		return Pack{}, err
 	}
 	// Build the pack next to its final place and move it there in one

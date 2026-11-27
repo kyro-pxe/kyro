@@ -289,7 +289,7 @@ func (s *Store) Add(imp *Import, replace bool) error {
 	if !ValidName(imp.Profile.Name) {
 		return fmt.Errorf("invalid profile name %q", imp.Profile.Name)
 	}
-	if err := os.MkdirAll(s.dir, 0o750); err != nil {
+	if err := fsutil.MkdirStore(s.dir); err != nil {
 		return err
 	}
 	final := filepath.Join(s.dir, imp.Profile.Name)

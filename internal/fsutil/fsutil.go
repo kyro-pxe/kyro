@@ -20,6 +20,8 @@
 package fsutil
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -75,4 +77,27 @@ func Mkdir(path string, mode os.FileMode) error {
 	}
 	OwnLike(path, filepath.Dir(path))
 	return nil
+}
+
+// MkdirStore makes sure that the directory of a store, such as
+// <data_dir>/drivers, exists. If it has to create it, the directory gets
+// the owner of its parent, the data directory, as with Mkdir. Created by
+// the CLI as root with os.MkdirAll, it would belong to root alone, and the
+// service, which reads it as another user, could not. That happened to
+// <data_dir>/drivers on a server set up by an older install.sh, which did
+// not create that directory.
+func MkdirStore(path string) error {
+	err := Mkdir(path, 0o750)
+	if errors.Is(err, fs.ErrNotExist) {
+		// The data directory itself is missing; install.sh makes it, so
+		// this is a test or a hand-made setup.
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			return err
+		}
+		err = Mkdir(path, 0o750)
+	}
+	if errors.Is(err, fs.ErrExist) {
+		return nil
+	}
+	return err
 }
