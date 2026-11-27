@@ -20,8 +20,10 @@ make release VERSION=v0.1.0-alpha   # files in dist/
 ## A release
 
 1. CI and CodeQL are green on the commit to release.
-2. `docs/ROADMAP.md`, the known limitations in `README.md` and
-   `docs/ALPHA.md` describe that commit.
+2. `docs/ROADMAP.md`, the known limitations in `README.md` and the plan
+   of the version (`docs/v0.2.0.md` and so on) describe that commit.
+   `docs/releases/<tag>.md` holds the release notes; the workflow uses it
+   as the text of the release and refuses to create one without it.
 3. Tag and push the tag:
 
    ```sh
